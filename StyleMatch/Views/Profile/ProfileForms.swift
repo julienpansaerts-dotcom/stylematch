@@ -79,7 +79,6 @@ struct AddressFormView: View {
                 }
                 .pickerStyle(.segmented)
                 LabeledContent("Transporteur", value: method.carrier)
-                LabeledContent("Frais", value: Money.format(Pricing.shipping(for: method)))
             }
 
             if method == .relayPoint {

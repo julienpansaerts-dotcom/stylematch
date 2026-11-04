@@ -27,7 +27,6 @@ struct GarmentDetailView: View {
                         if let measurements = live.measurements {
                             section("Mesures", text: measurements)
                         }
-                        seller
                         uniqueNotice
                     }
                     .padding(.horizontal, 20)
@@ -68,11 +67,6 @@ struct GarmentDetailView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture { select(photoIndex + 1) }
-                    }
-                }
-                .overlay {
-                    if live.isHot && live.isAvailable {
-                        FlameBorder(cornerRadius: 0, lineWidth: 3, showsFlames: false)
                     }
                 }
 
@@ -144,8 +138,7 @@ struct GarmentDetailView: View {
             HStack(spacing: 12) {
                 Image(systemName: "flame.fill")
                     .font(.title)
-                    .foregroundStyle(Theme.flameGradient)
-                    .symbolEffect(.pulse)
+                    .foregroundStyle(Theme.hotRed)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Pièce HOT 🔥")
                         .font(.headline)
@@ -156,7 +149,8 @@ struct GarmentDetailView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Theme.hotYellow.opacity(0.25))
+            .toonCard(cornerRadius: 16, outline: 2.5, shadowOffset: 4, shadowColor: Theme.hotRed)
         } else {
             Label(live.cartCountLabel, systemImage: "bag.fill")
                 .font(.subheadline.weight(.medium))
@@ -206,24 +200,6 @@ struct GarmentDetailView: View {
         }
     }
 
-    private var seller: some View {
-        HStack(spacing: 12) {
-            Text(String(live.sellerName.prefix(1)))
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(Theme.brandGradient, in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Vendu par \(live.sellerName)")
-                    .font(.subheadline.weight(.semibold))
-                Label("Vendeur vérifié", systemImage: "checkmark.seal.fill")
-                    .font(.caption)
-                    .foregroundStyle(Theme.like)
-            }
-            Spacer()
-        }
-    }
-
     private var uniqueNotice: some View {
         Label("Chaque article est une pièce unique de seconde main. Dès qu'il est acheté, il disparaît du panier de tous les autres utilisateurs.", systemImage: "sparkles")
             .font(.footnote)
@@ -234,14 +210,8 @@ struct GarmentDetailView: View {
 
     private var actionBar: some View {
         HStack(spacing: 12) {
-            Button {
+            CircleActionButton(systemImage: "xmark", color: Theme.pass, size: 54) {
                 onAction?(.left)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(Theme.pass)
-                    .frame(width: 56, height: 56)
-                    .background(Color(.secondarySystemBackground), in: Circle())
             }
             .accessibilityLabel("Passer")
 
@@ -249,19 +219,15 @@ struct GarmentDetailView: View {
                 onAction?(.right)
             } label: {
                 Label("Panier", systemImage: "bag.fill.badge.plus")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .foregroundStyle(Theme.like)
-                    .background(Theme.like.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
+            .buttonStyle(GradientButtonStyle(color: Theme.like))
 
             Button {
                 onAction?(.up)
             } label: {
                 Label("Acheter", systemImage: "bolt.fill")
             }
-            .buttonStyle(GradientButtonStyle())
+            .buttonStyle(GradientButtonStyle(color: Theme.buy))
         }
         .buttonStyle(PressableButtonStyle())
         .padding(.horizontal, 16)

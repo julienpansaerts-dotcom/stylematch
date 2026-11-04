@@ -197,7 +197,6 @@ struct Garment: Identifiable, Hashable, Sendable {
     /// Nombre d'utilisateurs ayant ce vêtement dans leur panier.
     var cartCount: Int
     var status: GarmentStatus
-    var sellerName: String
 
     var isHot: Bool { cartCount >= Garment.hotThreshold }
     var isAvailable: Bool { status == .available }

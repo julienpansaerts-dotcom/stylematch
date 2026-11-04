@@ -42,10 +42,11 @@ create table profiles (
 
 -- ---------------------------------------------------------------------
 -- Vêtements (pièces uniques)
+-- Un seul vendeur : la boutique StyleMatch. Les pièces sont mises en ligne
+-- par l'administrateur (clé service_role), jamais par les utilisateurs.
 -- ---------------------------------------------------------------------
 create table garments (
     id             uuid primary key default gen_random_uuid(),
-    seller_id      uuid references auth.users,
     title          text not null,
     brand          text,
     summary        text,          -- court descriptif affiché sur la carte
@@ -95,9 +96,13 @@ create table swipes (
 -- ---------------------------------------------------------------------
 -- Commandes
 -- ---------------------------------------------------------------------
+-- Compteur qui augmente de 1 à chaque commande : deux commandes ne peuvent
+-- jamais recevoir le même numéro (contrairement à un tirage aléatoire).
+create sequence order_number_seq;
+
 create table orders (
     id                 uuid primary key default gen_random_uuid(),
-    number             text unique not null default ('SM-' || to_char(now(), 'YYYY') || '-' || lpad((floor(random() * 100000))::text, 5, '0')),
+    number             text unique not null default ('SM-' || lpad(nextval('order_number_seq')::text, 6, '0')),
     buyer_id           uuid not null references auth.users,
     subtotal_cents     integer not null,
     shipping_cents     integer not null,
@@ -143,6 +148,40 @@ end $$;
 create trigger cart_items_count
 after insert or delete on cart_items
 for each row execute function sync_cart_count();
+
+-- ---------------------------------------------------------------------
+-- PRIX : seule source de vérité
+-- ---------------------------------------------------------------------
+-- L'app n'a aucune règle de prix codée en dur : elle affiche le devis renvoyé
+-- par quote_garments(), calculé avec les mêmes fonctions que l'achat.
+create or replace function shipping_cents(p_method delivery_method) returns integer
+language sql immutable as $$
+    select case p_method when 'home' then 490 else 290 end;
+$$;
+
+-- Protection acheteur : 0,70 € + 5 % du sous-total.
+create or replace function service_fee_cents(p_subtotal integer) returns integer
+language sql immutable as $$
+    select case when p_subtotal = 0 then 0 else 70 + p_subtotal * 5 / 100 end;
+$$;
+
+create or replace function quote_garments(p_garment_ids uuid[]) returns jsonb
+language sql stable security invoker set search_path = public as $$
+    with available as (
+        select id, price_cents from garments
+         where id = any(p_garment_ids) and status = 'available'
+    ), totals as (
+        select coalesce(sum(price_cents), 0)::integer as subtotal from available
+    )
+    select jsonb_build_object(
+        'subtotal_cents',    t.subtotal,
+        'shipping_cents',    jsonb_build_object('home', shipping_cents('home'), 'relayPoint', shipping_cents('relayPoint')),
+        'service_fee_cents', service_fee_cents(t.subtotal),
+        'unavailable',       coalesce((select jsonb_agg(g) from unnest(p_garment_ids) g
+                                       where g not in (select id from available)), '[]'::jsonb)
+    )
+    from totals t;
+$$;
 
 -- ---------------------------------------------------------------------
 -- ACHAT ATOMIQUE
@@ -200,8 +239,8 @@ begin
 
     -- 5. Crée la commande.
     select sum(price_cents) into v_subtotal from garments where id = any(v_bought);
-    v_shipping := case when p_delivery_method = 'home' then 490 else 290 end;
-    v_fee      := 70 + v_subtotal * 5 / 100;
+    v_shipping := shipping_cents(p_delivery_method);
+    v_fee      := service_fee_cents(v_subtotal);
 
     insert into orders (buyer_id, subtotal_cents, shipping_cents, service_fee_cents,
                         delivery_method, shipping_address, relay_point, carrier, stripe_payment_intent)

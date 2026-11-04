@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Bouton rond de la barre d'actions (passer / acheter / panier).
+/// Bouton rond de la barre d'actions (passer / acheter / panier), style cel-shading :
+/// contour d'encre, aplat de couleur et ombre dure qui « s'enfonce » à l'appui.
 struct CircleActionButton: View {
     let systemImage: String
     let color: Color
@@ -12,27 +13,47 @@ struct CircleActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: size * 0.4, weight: .bold))
-                    .foregroundStyle(color)
-                    .frame(width: size, height: size)
-                    .background(
-                        Circle()
-                            .fill(Color(.secondarySystemGroupedBackground))
-                            .shadow(color: color.opacity(0.35), radius: 8, y: 4)
-                    )
-                    .overlay(Circle().stroke(color.opacity(0.25), lineWidth: 1))
-                if let label {
-                    Text(label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.4, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+        }
+        .buttonStyle(ToonCircleButtonStyle(color: color))
+        .overlay(alignment: .bottom) {
+            if let label {
+                Text(label)
+                    .font(.system(.caption2, design: .rounded).weight(.heavy))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .offset(y: 20)
             }
         }
-        .buttonStyle(PressableButtonStyle())
+        .padding(.bottom, label == nil ? 0 : 18)
         .opacity(isEnabled ? 1 : 0.35)
         .accessibilityLabel(label ?? "")
+    }
+}
+
+/// Bouton rond cel-shading qui s'enfonce dans son ombre quand on appuie.
+struct ToonCircleButtonStyle: ButtonStyle {
+    let color: Color
+    private let depth: CGFloat = 4
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        return configuration.label
+            .background(Circle().fill(color))
+            .overlay(
+                // Reflet plat en haut à gauche
+                Circle()
+                    .trim(from: 0.55, to: 0.8)
+                    .stroke(Color.white.opacity(0.55), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .padding(7)
+            )
+            .overlay(Circle().strokeBorder(Theme.ink, lineWidth: 3))
+            .offset(y: pressed ? depth : 0)
+            .background(Circle().fill(Theme.ink).offset(y: depth))
+            .animation(.spring(response: 0.18, dampingFraction: 0.6), value: pressed)
     }
 }
 
@@ -44,23 +65,28 @@ struct PressableButtonStyle: ButtonStyle {
     }
 }
 
-/// Gros bouton principal au dégradé de la marque.
+/// Gros bouton principal : aplat de la couleur de la marque, contour d'encre,
+/// ombre dure qui s'enfonce à l'appui.
 struct GradientButtonStyle: ButtonStyle {
+    var color: Color = Theme.accent
     @Environment(\.isEnabled) private var isEnabled
+    private let depth: CGFloat = 5
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
+        let pressed = configuration.isPressed
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return configuration.label
+            .font(.system(.headline, design: .rounded).weight(.heavy))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Theme.brandGradient)
-            }
+            .padding(.vertical, 15)
+            .background(shape.fill(color))
+            .overlay(shape.strokeBorder(Theme.ink, lineWidth: 3))
+            .offset(y: pressed ? depth : 0)
+            .background(shape.fill(Theme.ink).offset(y: depth))
+            .padding(.bottom, depth)
             .opacity(isEnabled ? 1 : 0.45)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.25), value: configuration.isPressed)
+            .animation(.spring(response: 0.18, dampingFraction: 0.6), value: pressed)
     }
 }
 
@@ -91,8 +117,9 @@ struct SelectableChip: View {
             .padding(.vertical, 8)
             .foregroundStyle(isSelected ? Color.white : Color.primary)
             .background(
-                Capsule().fill(isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color(.tertiarySystemFill)))
+                Capsule().fill(isSelected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color(.tertiarySystemFill)))
             )
+            .overlay(Capsule().strokeBorder(Theme.ink, lineWidth: isSelected ? 2.5 : 0))
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.15), value: isSelected)

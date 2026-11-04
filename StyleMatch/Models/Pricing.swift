@@ -6,23 +6,24 @@ enum Money {
     }
 }
 
-/// Règles de prix partagées entre l'écran de paiement et le service.
-/// (En production, le serveur recalcule toujours le montant final.)
-enum Pricing {
-    static func shipping(for method: DeliveryMethod) -> Int {
-        switch method {
-        case .home: return 490
-        case .relayPoint: return 290
-        }
+/// Devis calculé par le serveur pour un ensemble de pièces.
+///
+/// L'app n'a aucune règle de prix codée en dur : elle affiche exactement ce que
+/// le serveur facturera (frais de livraison, protection acheteur, total).
+struct PriceQuote: Equatable, Sendable {
+    /// Somme des pièces encore disponibles.
+    let subtotalCents: Int
+    /// Frais de livraison proposés pour chaque mode.
+    let shippingCents: [DeliveryMethod: Int]
+    let serviceFeeCents: Int
+    /// Pièces demandées qui ne sont plus disponibles (exclues du devis).
+    let unavailableIDs: Set<String>
+
+    func shipping(for method: DeliveryMethod) -> Int {
+        subtotalCents > 0 ? (shippingCents[method] ?? 0) : 0
     }
 
-    /// Protection acheteur : 0,70 € + 5 % du sous-total.
-    static func serviceFee(subtotal: Int) -> Int {
-        subtotal == 0 ? 0 : 70 + subtotal * 5 / 100
-    }
-
-    static func total(subtotal: Int, method: DeliveryMethod) -> Int {
-        guard subtotal > 0 else { return 0 }
-        return subtotal + shipping(for: method) + serviceFee(subtotal: subtotal)
+    func total(for method: DeliveryMethod) -> Int {
+        subtotalCents > 0 ? subtotalCents + shipping(for: method) + serviceFeeCents : 0
     }
 }

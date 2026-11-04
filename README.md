@@ -14,9 +14,11 @@ pièce est **unique**, basée sur un système de swipe à la Tinder.
 ### Découvrir (la pile)
 - Carte principale avec **photos**, **taille**, **marque**, **état**, **prix**, **court descriptif**
   et **nombre de personnes qui l'ont dans leur panier**.
-- Pièce très demandée ⇒ badge **🔥 HOT** + **encadrement de flammes animé** autour de la carte.
+- Pièce très demandée ⇒ autocollant **🔥 HOT** + **encadré cel-shading** (contour épais, aplats orange/jaune,
+  ombre dure) autour de la carte. Toute l'interface suit ce style « jeu » : boutons qui s'enfoncent, contours d'encre.
 - Tap à gauche / à droite de la photo pour faire défiler les photos (comme Tinder).
-- Tap sur la carte ⇒ **fiche détaillée** avec toutes les photos, miniatures, description, mesures, vendeur.
+- Tap sur la carte ⇒ **fiche détaillée** avec toutes les photos, miniatures, description, mesures.
+- Une seule boutique vend toutes les pièces : pas de vendeurs particuliers.
 - Boutons : ↩︎ retour (annule le dernier swipe), ✕ passer, ⚡️ acheter, 🛍 panier.
 - Bouton **⟲ « Revoir les vêtements passés »** : remet dans la pile les pièces passées encore
   disponibles, **sans jamais remontrer celles déjà likées**.
@@ -93,7 +95,14 @@ StyleMatch/
 └── Resources/      Icône et couleurs
 backend/supabase/schema.sql   Base de données, achat atomique, temps réel
 docs/ARCHITECTURE.md          Fonctionnement détaillé et passage en production
+StyleMatchTests/              Tests unitaires (Swift Testing), lancés par la CI
 ```
+
+## Tests
+
+La CI GitHub (`iOS build & tests`) compile l'app et lance les tests unitaires sur un simulateur
+iPhone à chaque PR : panier dynamique, achat unique d'une pièce, annulation de swipe, filtres,
+devis serveur, carte bancaire, stockage chiffré du profil.
 
 ## Passer en production
 

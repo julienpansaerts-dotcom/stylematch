@@ -17,8 +17,6 @@ enum MockCatalogue {
         let measurements: String?
     }
 
-    private static let sellers = ["Camille", "Lucas", "Inès", "Hugo", "Léa", "Nathan", "Chloé", "Tom", "Manon", "Yanis"]
-
     static func makeGarments() -> [Garment] {
         seeds.enumerated().map { index, seed in
             Garment(
@@ -36,8 +34,7 @@ enum MockCatalogue {
                 priceCents: seed.price * 100,
                 photos: placeholderPhotos(category: seed.category, color: seed.color),
                 cartCount: seed.carts,
-                status: .available,
-                sellerName: sellers[index % sellers.count]
+                status: .available
             )
         }
     }
@@ -65,8 +62,7 @@ enum MockCatalogue {
             priceCents: 2800,
             photos: placeholderPhotos(category: .shirts, color: .blue),
             cartCount: 3,
-            status: .sold,
-            sellerName: "Lucas"
+            status: .sold
         )
         let timeline = OrderStatus.allCases.enumerated().map { index, status in
             OrderStatusEvent(status: status, date: date.addingTimeInterval(Double(index) * 14 * 3600))
@@ -78,8 +74,8 @@ enum MockCatalogue {
                 createdAt: date,
                 items: [garment],
                 subtotalCents: 2800,
-                shippingCents: Pricing.shipping(for: .relayPoint),
-                serviceFeeCents: Pricing.serviceFee(subtotal: 2800),
+                shippingCents: ServerPricing.shipping(for: .relayPoint),
+                serviceFeeCents: ServerPricing.serviceFee(subtotal: 2800),
                 deliveryMethod: .relayPoint,
                 shippingAddress: ShippingAddress(line1: "12 rue des Lilas", postalCode: "75011", city: "Paris"),
                 relayPoint: "Tabac Le Balto – 75011 Paris",

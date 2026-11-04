@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// Badge « HOT » affiché sur les pièces très demandées.
+/// Badge « HOT » façon autocollant cel-shading.
 struct HotBadge: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "flame.fill")
-                .symbolEffect(.pulse)
+                .foregroundStyle(Theme.hotYellow)
             Text("HOT")
-                .fontWeight(.black)
+                .font(.system(.subheadline, design: .rounded).weight(.black))
+                .foregroundStyle(.white)
         }
-        .font(.caption)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
+        .font(.subheadline.weight(.black))
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(
-            Capsule().fill(LinearGradient(colors: [.yellow, .orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing))
-        )
-        .shadow(color: .orange.opacity(0.6), radius: 6)
+        .background(Capsule().fill(Theme.hotRed))
+        .overlay(Capsule().strokeBorder(Theme.ink, lineWidth: 3))
+        .background(Capsule().fill(Theme.ink).offset(x: 2, y: 3))
+        .accessibilityLabel("Pièce HOT")
     }
 }
 

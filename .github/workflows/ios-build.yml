@@ -1,4 +1,4 @@
-name: iOS build
+name: iOS build & tests
 
 on:
   push:
@@ -23,3 +23,12 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+      - name: Unit tests (iOS Simulator)
+        run: |
+          simulator=$(python3 .github/scripts/pick-simulator.py)
+          xcodebuild \
+            -project StyleMatch.xcodeproj \
+            -scheme StyleMatch \
+            -destination "id=$simulator" \
+            -configuration Debug \
+            test
