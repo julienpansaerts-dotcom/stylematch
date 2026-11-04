@@ -54,6 +54,12 @@ jobs:
             echo "EXPORT_PATH=$RUNNER_TEMP/export"
           } >> "$GITHUB_ENV"
 
+      - name: Vérifier la configuration App Store Connect
+        run: |
+          python3 -m pip install --quiet --break-system-packages "pyjwt[crypto]" 2>/dev/null \
+            || python3 -m pip install --quiet "pyjwt[crypto]"
+          python3 .github/scripts/check-app-store-connect.py
+
       - name: Sélectionner Xcode 26+
         run: .github/scripts/select-xcode.sh
 
@@ -128,6 +134,26 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Conserver les logs d'export en cas d'échec
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/distribution-logs"
+          find "${TMPDIR:-/tmp}" /var/folders -maxdepth 6 -name "*.xcdistributionlogs" -type d 2>/dev/null \
+            -exec cp -R {} "$RUNNER_TEMP/distribution-logs/" \; || true
+          for f in "$RUNNER_TEMP"/distribution-logs/*/IDEDistribution*.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f"
+            grep -iE "error|fail|denied|not found|unauthor" "$f" | tail -40 || true
+          done
+
+      - name: Publier les logs d'export
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-logs
+          path: ${{ runner.temp }}/distribution-logs
+          if-no-files-found: ignore
 
       - name: Résumé
         run: |
