@@ -23,7 +23,7 @@ L'inscription peut prendre de quelques heures à 48 h.
 **App IDs** › **App** :
 
 - Description : `StyleMatch`
-- Bundle ID : **Explicit** › `com.pansaerts.stylematch`
+- Bundle ID : **Explicit** › `stylematch`
 - Aucune capability à cocher › **Register**
 
 ## 4. Créer l'app dans App Store Connect
@@ -34,7 +34,7 @@ L'inscription peut prendre de quelques heures à 48 h.
 - Nom : `StyleMatch` (le nom doit être unique sur l'App Store ; s'il est pris,
   essaie par ex. `StyleMatch – Seconde main`, ça ne change rien au code)
 - Langue principale : **Français**
-- Identifiant de lot (Bundle ID) : `com.pansaerts.stylematch`
+- Identifiant de lot (Bundle ID) : `stylematch`
 - SKU : `stylematch`
 - Accès utilisateur : **Accès complet**
 

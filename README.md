@@ -58,7 +58,7 @@ l'envoie sur TestFlight. Configuration pas à pas (une seule fois) :
 
 **Sur ton propre iPhone :** dans Xcode, cible *StyleMatch* › *Signing & Capabilities*, choisis ton
 *Team* (ton identifiant Apple suffit), puis sélectionne ton iPhone comme destination. Si le
-bundle identifier `com.pansaerts.stylematch` est refusé, remplace-le par un identifiant unique.
+bundle identifier `stylematch` est refusé, remplace-le par un identifiant unique.
 
 ## Mode démo
 
