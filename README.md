@@ -39,9 +39,15 @@ jeans, pantalons, shorts, robes, jupes, chaussures, sacs, accessoires), tailles 
 - **Mes commandes** : vêtements achetés et **suivi de livraison** (confirmée → en préparation →
   expédiée → en transit → en livraison → livrée) avec numéro de suivi.
 
-## Lancer l'application
+## Tester sur iPhone avec TestFlight (sans Mac)
 
-**Prérequis :** un Mac avec **Xcode 16 ou plus récent**. L'app cible **iOS 17+**.
+Le workflow GitHub Actions **TestFlight** compile l'app sur un Mac dans le cloud et
+l'envoie sur TestFlight. Configuration pas à pas (une seule fois) :
+[`docs/TESTFLIGHT.md`](docs/TESTFLIGHT.md).
+
+## Lancer l'application avec Xcode
+
+**Prérequis :** un Mac avec **Xcode 26 ou plus récent**. L'app cible **iOS 17+**.
 
 1. Cloner le dépôt :
    ```bash

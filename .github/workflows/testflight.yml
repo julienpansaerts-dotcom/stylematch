@@ -1,0 +1,141 @@
+name: TestFlight
+
+# Lancement manuel : onglet « Actions » › « TestFlight » › « Run workflow »
+# (fonctionne aussi depuis l'app mobile GitHub).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      BUNDLE_ID: com.pansaerts.stylematch
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ARCHIVE_PATH: ${{ runner.temp }}/StyleMatch.xcarchive
+      EXPORT_PATH: ${{ runner.temp }}/export
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier les secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=0
+          for name in TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret GitHub manquant pour $name (voir docs/TESTFLIGHT.md)"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Installer la clé API App Store Connect
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          key_dir="$RUNNER_TEMP/private_keys"
+          mkdir -p "$key_dir"
+          key_path="$key_dir/AuthKey_${ASC_KEY_ID}.p8"
+          if printf '%s' "$ASC_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$ASC_KEY_P8" > "$key_path"
+          else
+            # Le secret a été collé encodé en base64.
+            printf '%s' "$ASC_KEY_P8" | base64 --decode > "$key_path"
+          fi
+          chmod 600 "$key_path"
+          echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      - name: Sélectionner Xcode 26+
+        run: .github/scripts/select-xcode.sh
+
+      - name: Archiver (sans signature)
+        run: |
+          # Numéro de build unique et croissant (AAAAMMJJHHMM).
+          build_number=$(date -u +%Y%m%d%H%M)
+          echo "Build number: $build_number"
+          xcodebuild \
+            -project StyleMatch.xcodeproj \
+            -scheme StyleMatch \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION="$build_number" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Signature ad hoc de l'archive
+        # La clé API ne sait pas signer un « archive » : on signe ad hoc, puis
+        # l'export ci-dessous re-signe pour l'App Store via les certificats
+        # gérés dans le cloud par Apple.
+        run: |
+          app="$ARCHIVE_PATH/Products/Applications/StyleMatch.app"
+          entitlements="$RUNNER_TEMP/StyleMatch.entitlements"
+          cat > "$entitlements" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>application-identifier</key>
+            <string>${TEAM_ID}.${BUNDLE_ID}</string>
+            <key>com.apple.developer.team-identifier</key>
+            <string>${TEAM_ID}</string>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --sign - --timestamp=none --generate-entitlement-der \
+            --entitlements "$entitlements" "$app"
+          codesign --verify --deep --strict "$app"
+
+      - name: Exporter et envoyer sur App Store Connect
+        run: |
+          options="$RUNNER_TEMP/ExportOptions.plist"
+          cat > "$options" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$options" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Résumé
+        run: |
+          {
+            echo "### ✅ Build envoyé sur App Store Connect"
+            echo ""
+            echo "Apple traite le build (10 à 30 min), puis il apparaît dans TestFlight."
+            echo "Tu recevras un e-mail d'Apple quand il sera prêt."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Nettoyer la clé
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private_keys"
