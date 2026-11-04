@@ -206,9 +206,8 @@ final class AppStore {
             post(Notice(kind: .soldOut, title: "Trop tard ! 💔", message: "« \(garment.title) » a été vendu entre-temps."))
             return
         }
-        var restored = garment
-        if last.direction == .right { restored.cartCount = max(0, restored.cartCount - 1) }
-        deck.insert(restored, at: 0)
+        // `garment` a été capturé avant l'ajout au panier : son compteur est déjà le bon.
+        deck.insert(garment, at: 0)
         Haptics.impact(.light)
     }
 
