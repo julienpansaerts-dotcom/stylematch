@@ -18,8 +18,6 @@ jobs:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ARCHIVE_PATH: ${{ runner.temp }}/StyleMatch.xcarchive
-      EXPORT_PATH: ${{ runner.temp }}/export
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +48,11 @@ jobs:
             printf '%s' "$ASC_KEY_P8" | base64 --decode > "$key_path"
           fi
           chmod 600 "$key_path"
-          echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          {
+            echo "ASC_KEY_PATH=$key_path"
+            echo "ARCHIVE_PATH=$RUNNER_TEMP/StyleMatch.xcarchive"
+            echo "EXPORT_PATH=$RUNNER_TEMP/export"
+          } >> "$GITHUB_ENV"
 
       - name: Sélectionner Xcode 26+
         run: .github/scripts/select-xcode.sh
