@@ -21,3 +21,7 @@ xcuserdata/
 # Secrets
 *.env
 GoogleService-Info.plist
+
+# Python
+__pycache__/
+*.pyc
