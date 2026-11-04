@@ -80,6 +80,12 @@ def main() -> None:
 
     apps = get("apps", {"filter[bundleId]": bundle_id, "limit": 5}, bearer).get("data", [])
     if not apps:
+        print("Apps visibles avec cette clé dans App Store Connect :")
+        for other in get("apps", {"limit": 50}, bearer).get("data", []):
+            print(f"  • « {other['attributes'].get('name')} » — Bundle ID : {other['attributes'].get('bundleId')}")
+        print("Bundle IDs enregistrés sur developer.apple.com :")
+        for other in get("bundleIds", {"limit": 50}, bearer).get("data", []):
+            print(f"  • {other['attributes'].get('identifier')} ({other['attributes'].get('name')})")
         fail(
             f"Aucune app avec le Bundle ID {bundle_id} dans App Store Connect. "
             "Crée-la sur https://appstoreconnect.apple.com/apps › + › Nouvelle app "
