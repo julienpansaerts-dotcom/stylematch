@@ -132,10 +132,10 @@ struct CartRow: View {
         HStack(spacing: 12) {
             PhotoView(source: garment.photos.first, compact: true)
                 .frame(width: 72, height: 90)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .toonCard(cornerRadius: 12, outline: 2, shadowOffset: 3, shadowColor: garment.isHot ? Theme.hotRed : Theme.ink)
                 .overlay {
                     if garment.isHot {
-                        FlameBorder(cornerRadius: 12, lineWidth: 2, showsFlames: false)
+                        HotFrame(cornerRadius: 12, scale: 0.45)
                     }
                 }
 
@@ -157,7 +157,7 @@ struct CartRow: View {
                         systemImage: garment.isHot ? "flame.fill" : "person.2.fill"
                     )
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(garment.isHot ? Color.orange : Color.secondary)
+                    .foregroundStyle(garment.isHot ? Theme.hotOrange : Color.secondary)
                     .contentTransition(.numericText())
                 }
             }

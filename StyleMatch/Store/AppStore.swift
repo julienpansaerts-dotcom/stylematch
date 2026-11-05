@@ -41,6 +41,13 @@ final class AppStore {
     private let persistence: LocalPersistence
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var pendingBuyNow: Garment?
+    /// Opérations panier en cours, chaînées par vêtement : un retrait part
+    /// toujours APRÈS l'ajout correspondant, même si le réseau est lent.
+    @ObservationIgnored private var cartOperations: [String: Task<Void, Never>] = [:]
+    /// Incrémenté à chaque rechargement de la pile : un résultat réseau
+    /// obtenu avec d'anciens filtres est ignoré.
+    @ObservationIgnored private var deckGeneration = 0
+    @ObservationIgnored private var refillTask: Task<Void, Never>?
 
     // MARK: Pile de swipe
     private(set) var deck: [Garment] = []
@@ -121,25 +128,48 @@ final class AppStore {
     }
 
     func reloadDeck() async {
+        deckGeneration += 1
+        let generation = deckGeneration
+        // Un complément de pile lancé avec les anciens filtres ne doit plus arriver.
+        refillTask?.cancel()
+        refillTask = nil
+
         isLoadingDeck = true
-        defer { isLoadingDeck = false }
         deck = []
+        let currentFilters = filters
+        let excluded = excludedIDs()
         do {
-            deck = try await service.feed(filters: filters, excluding: excludedIDs(), limit: 20)
+            let items = try await service.feed(filters: currentFilters, excluding: excluded, limit: 20)
+            guard generation == deckGeneration else { return }
+            deck = items
         } catch {
-            post(error)
+            if generation == deckGeneration { post(error) }
         }
+        if generation == deckGeneration { isLoadingDeck = false }
     }
 
     private func refillDeckIfNeeded() {
-        guard deck.count < 5, !isLoadingDeck else { return }
-        isLoadingDeck = true
-        Task {
-            defer { isLoadingDeck = false }
-            guard let more = try? await service.feed(filters: filters, excluding: excludedIDs(), limit: 20) else { return }
-            let existing = Set(deck.map(\.id))
-            deck.append(contentsOf: more.filter { !existing.contains($0.id) })
+        guard deck.count < 5, refillTask == nil, !isLoadingDeck else { return }
+        let generation = deckGeneration
+        let currentFilters = filters
+        let excluded = excludedIDs()
+        refillTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == self.deckGeneration { self.refillTask = nil }
+            }
+            guard let more = try? await self.service.feed(filters: currentFilters, excluding: excluded, limit: 20),
+                  !Task.isCancelled,
+                  generation == self.deckGeneration else { return }
+            // Exclut aussi ce qui a été swipé pendant le chargement.
+            let existing = self.excludedIDs()
+            self.deck.append(contentsOf: more.filter { !existing.contains($0.id) })
         }
+    }
+
+    /// Attend la fin du complément de pile en cours (utile pour les tests).
+    func waitForDeckRefill() async {
+        await refillTask?.value
     }
 
     /// Version la plus récente d'un vêtement (compteur panier, statut…).
@@ -198,7 +228,7 @@ final class AppStore {
         case .right:
             likedIDs.remove(garment.id)
             cart.removeAll { $0.id == garment.id }
-            Task { try? await service.removeFromCart(garment.id) }
+            sendRemoveFromCart(garment.id)
         case .up:
             break
         }
@@ -251,19 +281,22 @@ final class AppStore {
         optimistic.cartCount += 1
         cart.insert(optimistic, at: 0)
 
-        Task {
+        enqueueCartOperation(for: garment.id) { [weak self] in
+            guard let self else { return }
+            // Swipe annulé avant l'envoi : inutile de prévenir le serveur.
+            guard self.cart.contains(where: { $0.id == garment.id }) else { return }
             do {
-                let updated = try await service.addToCart(garment.id)
-                if let index = cart.firstIndex(where: { $0.id == updated.id }) {
-                    cart[index] = updated
+                let updated = try await self.service.addToCart(garment.id)
+                if let index = self.cart.firstIndex(where: { $0.id == updated.id }) {
+                    self.cart[index] = updated
                 }
             } catch {
-                cart.removeAll { $0.id == garment.id }
+                self.cart.removeAll { $0.id == garment.id }
                 if (error as? MarketplaceError) == .alreadySold {
-                    soldIDs.insert(garment.id)
-                    post(Notice(kind: .soldOut, title: "Trop tard ! 💔", message: "« \(garment.title) » vient d'être vendu."))
+                    self.soldIDs.insert(garment.id)
+                    self.post(Notice(kind: .soldOut, title: "Trop tard ! 💔", message: "« \(garment.title) » vient d'être vendu."))
                 } else {
-                    post(error)
+                    self.post(error)
                 }
             }
         }
@@ -271,7 +304,38 @@ final class AppStore {
 
     func removeFromCart(_ garment: Garment) {
         cart.removeAll { $0.id == garment.id }
-        Task { try? await service.removeFromCart(garment.id) }
+        sendRemoveFromCart(garment.id)
+    }
+
+    private func sendRemoveFromCart(_ garmentID: String) {
+        enqueueCartOperation(for: garmentID) { [weak self] in
+            try? await self?.service.removeFromCart(garmentID)
+        }
+    }
+
+    /// Chaîne les appels serveur d'un même vêtement pour qu'ils arrivent dans l'ordre.
+    private func enqueueCartOperation(for garmentID: String, _ operation: @escaping @MainActor () async -> Void) {
+        let previous = cartOperations[garmentID]
+        let task = Task { @MainActor in
+            await previous?.value
+            await operation()
+        }
+        cartOperations[garmentID] = task
+        Task { @MainActor [weak self] in
+            await task.value
+            // Nettoyage si aucune opération plus récente n'a été ajoutée.
+            if let self, self.cartOperations[garmentID] == task {
+                self.cartOperations[garmentID] = nil
+            }
+        }
+    }
+
+    /// Attend que toutes les opérations panier soient parties au serveur (utile pour les tests).
+    func waitForPendingCartOperations() async {
+        // La dernière tâche de chaque vêtement attend déjà les précédentes.
+        for task in Array(cartOperations.values) {
+            await task.value
+        }
     }
 
     func clearLostItems() {
@@ -288,6 +352,11 @@ final class AppStore {
     }
 
     // MARK: - Paiement
+
+    /// Devis du serveur : l'app n'a aucune règle de prix codée en dur.
+    func quote(for garments: [Garment]) async throws -> PriceQuote {
+        try await service.quote(garments.map(\.id))
+    }
 
     func confirmCheckout(_ request: CheckoutRequest) async -> CheckoutOutcome {
         guard profile.isReadyForCheckout, let payment = profile.payment else {

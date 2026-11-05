@@ -14,14 +14,22 @@ actor MockMarketplaceService: MarketplaceService {
     private var subscribers: [UUID: AsyncStream<MarketplaceEvent>.Continuation] = [:]
     private var simulationTask: Task<Void, Never>?
     private let simulateOtherUsers: Bool
+    private let latency: ClosedRange<Int>
+    private let paymentDelay: Int
     private var orderCounter = 41
 
-    init(simulateOtherUsers: Bool = true) {
+    /// - Parameters:
+    ///   - simulateOtherUsers: simule l'activité des autres acheteurs (désactivé dans les tests).
+    ///   - latency: délai réseau simulé, en millisecondes.
+    ///   - paymentDelay: durée simulée de l'autorisation bancaire, en millisecondes.
+    init(simulateOtherUsers: Bool = true, latency: ClosedRange<Int> = 120...300, paymentDelay: Int = 900) {
         let items = MockCatalogue.makeGarments()
         self.catalogue = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         self.feedOrder = items.map(\.id)
         self.myOrders = MockCatalogue.makePastOrders()
         self.simulateOtherUsers = simulateOtherUsers
+        self.latency = latency
+        self.paymentDelay = paymentDelay
     }
 
     deinit {
@@ -81,9 +89,14 @@ actor MockMarketplaceService: MarketplaceService {
 
     // MARK: - Achat
 
+    func quote(_ garmentIDs: [String]) async throws -> PriceQuote {
+        try await networkDelay()
+        return ServerPricing.quote(for: garmentIDs.compactMap { catalogue[$0] }, requestedIDs: garmentIDs)
+    }
+
     func purchase(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PurchaseResult {
         // Simule l'autorisation bancaire.
-        try await Task.sleep(for: .milliseconds(900))
+        try await Task.sleep(for: .milliseconds(paymentDelay))
 
         // ⚠️ Section critique : aucune suspension (`await`) entre la vérification
         // et le marquage « vendu ». L'acteur garantit qu'aucun autre achat ne
@@ -115,8 +128,8 @@ actor MockMarketplaceService: MarketplaceService {
             createdAt: now,
             items: bought,
             subtotalCents: subtotal,
-            shippingCents: Pricing.shipping(for: details.deliveryMethod),
-            serviceFeeCents: Pricing.serviceFee(subtotal: subtotal),
+            shippingCents: ServerPricing.shipping(for: details.deliveryMethod),
+            serviceFeeCents: ServerPricing.serviceFee(subtotal: subtotal),
             deliveryMethod: details.deliveryMethod,
             shippingAddress: details.address,
             relayPoint: details.relayPoint,
@@ -157,7 +170,7 @@ actor MockMarketplaceService: MarketplaceService {
     }
 
     private func networkDelay() async throws {
-        try await Task.sleep(for: .milliseconds(Int.random(in: 120...300)))
+        try await Task.sleep(for: .milliseconds(Int.random(in: latency)))
     }
 
     // MARK: - Simulation des autres utilisateurs
@@ -177,7 +190,7 @@ actor MockMarketplaceService: MarketplaceService {
 
     private func simulateTick(_ tick: Int) {
         simulateCartActivity()
-        if tick % 10 == 0 { simulateSomeoneElseBuying() }
+        if tick % 10 == 0 { simulateSomeoneElseBuying(nil) }
         if tick % 4 == 0 { advanceOrders() }
     }
 
@@ -196,10 +209,17 @@ actor MockMarketplaceService: MarketplaceService {
         broadcast(.cartCountChanged(id: garment.id, count: garment.cartCount))
     }
 
+    /// Simule l'achat d'une pièce précise par un autre utilisateur (tests).
+    func simulateExternalPurchase(of garmentID: String) {
+        simulateSomeoneElseBuying(garmentID)
+    }
+
     /// Un autre utilisateur achète une pièce — parfois une pièce de mon panier.
-    private func simulateSomeoneElseBuying() {
+    private func simulateSomeoneElseBuying(_ forcedID: String?) {
         let target: String?
-        if !myCart.isEmpty && Double.random(in: 0...1) < 0.4 {
+        if let forcedID {
+            target = forcedID
+        } else if !myCart.isEmpty && Double.random(in: 0...1) < 0.4 {
             target = myCart.randomElement()
         } else {
             target = catalogue.values.filter(\.isAvailable).randomElement()?.id

@@ -9,6 +9,9 @@ struct CheckoutView: View {
 
     @State private var isProcessing = false
     @State private var outcome: CheckoutOutcome?
+    /// Montants calculés par le serveur (nil pendant le chargement).
+    @State private var quote: PriceQuote?
+    @State private var quoteError: String?
 
     var body: some View {
         NavigationStack {
@@ -43,12 +46,28 @@ struct CheckoutView: View {
 
     // MARK: - Calculs
 
-    private var availableGarments: [Garment] {
-        request.garments.filter { !store.isUnavailable($0.id) }
+    private func isUnavailable(_ garment: Garment) -> Bool {
+        store.isUnavailable(garment.id) || (quote?.unavailableIDs.contains(garment.id) ?? false)
     }
 
-    private var subtotal: Int {
-        availableGarments.reduce(0) { $0 + $1.priceCents }
+    private var availableGarments: [Garment] {
+        request.garments.filter { !isUnavailable($0) }
+    }
+
+    private var method: DeliveryMethod { store.profile.deliveryMethod }
+
+    private func amount(_ cents: Int?) -> String {
+        cents.map(Money.format) ?? "…"
+    }
+
+    private func loadQuote() async {
+        do {
+            let newQuote = try await store.quote(for: availableGarments)
+            quote = newQuote
+            quoteError = nil
+        } catch {
+            quoteError = error.localizedDescription
+        }
     }
 
     // MARK: - Formulaire
@@ -57,7 +76,7 @@ struct CheckoutView: View {
         List {
             Section("Articles") {
                 ForEach(request.garments) { garment in
-                    CheckoutItemRow(garment: store.liveVersion(of: garment), isSold: store.isUnavailable(garment.id))
+                    CheckoutItemRow(garment: store.liveVersion(of: garment), isSold: isUnavailable(garment))
                 }
             }
 
@@ -81,7 +100,7 @@ struct CheckoutView: View {
             Section("Livraison") {
                 Picker("Mode", selection: deliveryMethod) {
                     ForEach(DeliveryMethod.allCases) { method in
-                        Text("\(method.label) · \(Money.format(Pricing.shipping(for: method)))").tag(method)
+                        Text("\(method.label) · \(amount(quote?.shippingCents[method]))").tag(method)
                     }
                 }
                 NavigationLink {
@@ -110,15 +129,22 @@ struct CheckoutView: View {
                 }
             }
 
-            Section("Récapitulatif") {
-                row("Articles (\(availableGarments.count))", subtotal)
-                row("Livraison \(store.profile.deliveryMethod.carrier)", subtotal > 0 ? Pricing.shipping(for: store.profile.deliveryMethod) : 0)
-                row("Protection acheteur", Pricing.serviceFee(subtotal: subtotal))
+            Section {
+                row("Articles (\(availableGarments.count))", quote?.subtotalCents)
+                row("Livraison \(method.carrier)", quote?.shipping(for: method))
+                row("Protection acheteur", quote?.serviceFeeCents)
                 HStack {
                     Text("Total").font(.headline)
                     Spacer()
-                    Text(Money.format(Pricing.total(subtotal: subtotal, method: store.profile.deliveryMethod)))
+                    Text(amount(quote?.total(for: method)))
                         .font(.headline)
+                }
+            } header: {
+                Text("Récapitulatif")
+            } footer: {
+                if let quoteError {
+                    Text("Impossible de calculer le total : \(quoteError)")
+                        .foregroundStyle(Theme.pass)
                 }
             }
 
@@ -131,6 +157,10 @@ struct CheckoutView: View {
         .safeAreaInset(edge: .bottom) {
             payButton
         }
+        // Recalcule le devis si une pièce est vendue entre-temps.
+        .task(id: availableGarments.map(\.id)) {
+            await loadQuote()
+        }
     }
 
     private var payButton: some View {
@@ -141,22 +171,22 @@ struct CheckoutView: View {
                     Text("Paiement en cours…")
                 } else {
                     Image(systemName: store.profile.payment?.kind.symbol ?? "creditcard.fill")
-                    Text("Payer \(Money.format(Pricing.total(subtotal: subtotal, method: store.profile.deliveryMethod)))")
+                    Text("Payer \(amount(quote?.total(for: method)))")
                 }
             }
         }
         .buttonStyle(GradientButtonStyle())
-        .disabled(!store.profile.isReadyForCheckout || availableGarments.isEmpty || isProcessing)
+        .disabled(!store.profile.isReadyForCheckout || availableGarments.isEmpty || isProcessing || quote == nil)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
     }
 
-    private func row(_ label: String, _ cents: Int) -> some View {
+    private func row(_ label: String, _ cents: Int?) -> some View {
         HStack {
             Text(label)
             Spacer()
-            Text(Money.format(cents))
+            Text(amount(cents))
                 .foregroundStyle(.secondary)
         }
     }

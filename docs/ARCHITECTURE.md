@@ -42,8 +42,18 @@ tap au centre ou sur les infos = fiche détaillée avec toutes les photos.
 ### Indicateur HOT
 
 `Garment.isHot` est vrai dès que `cartCount >= Garment.hotThreshold` (8 par défaut).
-La carte affiche alors le badge 🔥 HOT, un **encadrement de flammes animé**
-(`FlameBorder`) et un halo orange. Le compteur est mis à jour en temps réel.
+La carte affiche alors l'autocollant 🔥 HOT et un **encadré cel-shading** (`HotFrame` :
+contour d'encre, bandes d'aplats orange / jaune, ombre dure rouge). Ce style est statique :
+aucune animation continue, donc pas de coût batterie. Le compteur est mis à jour en temps réel.
+
+### Annulation et ordre des requêtes
+
+Les appels panier d'un même vêtement sont **chaînés** (`AppStore.enqueueCartOperation`) :
+si l'utilisateur annule un swipe à droite pendant que l'ajout est en route, le retrait
+part forcément après l'ajout. Si l'ajout n'est pas encore parti, il est simplement abandonné.
+
+Chaque rechargement de la pile incrémente un numéro de génération : un complément de pile
+demandé avec les anciens filtres est ignoré s'il arrive après un changement de filtres.
 
 ## Le panier dynamique (pièces uniques)
 
@@ -71,6 +81,19 @@ Dans le mode démo, `MockMarketplaceService` est un `actor` : l'isolation de l'a
 joue le rôle du verrou de base de données, et une boucle simule les autres
 utilisateurs (ajouts au panier toutes les 3‑6 s, un achat par un tiers environ toutes
 les 45 s — parfois une pièce de **ton** panier — et l'avancement des livraisons).
+
+## Prix : une seule source de vérité
+
+L'app ne contient **aucune règle de prix**. L'écran de paiement demande un devis au serveur
+(`MarketplaceService.quote`, `quote_garments` en SQL) et la commande est facturée avec les
+mêmes fonctions (`shipping_cents`, `service_fee_cents`). Le total affiché est donc toujours
+celui qui sera facturé. Un test vérifie que devis et commande donnent le même montant.
+
+## Données personnelles
+
+Le profil (nom, e-mail, adresse, 4 derniers chiffres de la carte) est stocké dans le
+**trousseau iOS** (`KeychainStore`), chiffré et lié à l'appareil. Les anciennes versions qui
+le stockaient en clair dans `UserDefaults` sont migrées automatiquement au lancement.
 
 ## Paiement (production)
 
@@ -102,5 +125,5 @@ conserve que la marque et les 4 derniers chiffres.
 * Authentification (Sign in with Apple) et profils synchronisés.
 * Notifications push : « une pièce de ton panier devient HOT », « vendue ».
 * Réservation de 10 min pendant le paiement (`status = 'reserved'`).
-* Côté vendeur : mise en ligne d'une pièce avec photos.
-* Tests unitaires sur `AppStore` avec un service simulé déterministe.
+* Back-office de la boutique (seul vendeur) : mise en ligne d'une pièce avec photos.
+* Paiement réel Stripe / Apple Pay (voir ci-dessus).

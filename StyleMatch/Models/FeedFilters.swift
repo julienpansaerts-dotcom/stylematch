@@ -19,9 +19,9 @@ struct FeedFilters: Codable, Equatable, Sendable {
         if !sizes.isEmpty && !sizes.contains(garment.size) { return false }
         if !conditions.isEmpty && !conditions.contains(garment.condition) { return false }
         if !colors.isEmpty && !colors.contains(garment.color) { return false }
-        let euros = garment.priceCents / 100
-        if euros < minPrice { return false }
-        if maxPrice < FeedFilters.priceCeiling && euros > maxPrice { return false }
+        // Comparaison en centimes : 29,99 € ne passe pas « jusqu'à 29 € ».
+        if garment.priceCents < minPrice * 100 { return false }
+        if maxPrice < FeedFilters.priceCeiling && garment.priceCents > maxPrice * 100 { return false }
         if hotOnly && !garment.isHot { return false }
         return true
     }

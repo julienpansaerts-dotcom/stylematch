@@ -56,6 +56,9 @@ protocol MarketplaceService: Sendable {
     func addToCart(_ garmentID: String) async throws -> Garment
     func removeFromCart(_ garmentID: String) async throws
 
+    /// Devis (frais de livraison, protection acheteur, total) calculé par le serveur.
+    func quote(_ garmentIDs: [String]) async throws -> PriceQuote
+
     /// Achat atomique : chaque pièce n'est vendue qu'une seule fois.
     func purchase(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PurchaseResult
     func orders() async throws -> [Order]

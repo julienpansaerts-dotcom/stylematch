@@ -35,19 +35,29 @@ struct GarmentCardView: View {
         .overlay {
             if garment.status == .sold { soldOverlay }
         }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .toonCard(
+            cornerRadius: cornerRadius,
+            shadowOffset: 7,
+            shadowColor: isHotAndAvailable ? Theme.hotRed : Theme.ink
+        )
         .overlay {
-            if garment.isHot && garment.isAvailable {
-                FlameBorder(cornerRadius: cornerRadius)
+            if isHotAndAvailable {
+                HotFrame(cornerRadius: cornerRadius)
             }
         }
-        .shadow(
-            color: garment.isHot ? .orange.opacity(0.45) : .black.opacity(0.18),
-            radius: garment.isHot ? 18 : 10,
-            y: 6
-        )
+        .overlay(alignment: .topTrailing) {
+            if isHotAndAvailable {
+                HotBadge()
+                    .scaleEffect(1.15)
+                    .rotationEffect(.degrees(8))
+                    .offset(x: 8, y: -10)
+                    .allowsHitTesting(false)
+            }
+        }
         .onChange(of: garment.id) { _, _ in photoIndex = 0 }
     }
+
+    private var isHotAndAvailable: Bool { garment.isHot && garment.isAvailable }
 
     private var currentPhoto: PhotoSource? {
         garment.photos.indices.contains(photoIndex) ? garment.photos[photoIndex] : garment.photos.first
@@ -91,14 +101,9 @@ struct GarmentCardView: View {
                     }
                 }
             }
-            HStack {
-                Spacer()
-                if garment.isHot {
-                    HotBadge()
-                }
-            }
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
         .allowsHitTesting(false)
     }
 
@@ -135,7 +140,7 @@ struct GarmentCardView: View {
                     .font(.body)
             }
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(garment.isHot ? Color.orange : Color.white.opacity(0.85))
+            .foregroundStyle(garment.isHot ? Theme.hotYellow : Color.white.opacity(0.85))
             .animation(.snappy, value: garment.cartCount)
         }
         .foregroundStyle(.white)

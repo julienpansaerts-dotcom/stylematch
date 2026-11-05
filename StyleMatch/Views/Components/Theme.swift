@@ -8,7 +8,6 @@ enum Theme {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
-    static let flameGradient = LinearGradient(colors: [.yellow, .orange, .red], startPoint: .bottom, endPoint: .top)
 
     static let pass = Color(red: 0.98, green: 0.27, blue: 0.33)
     static let like = Color(red: 0.13, green: 0.80, blue: 0.52)
