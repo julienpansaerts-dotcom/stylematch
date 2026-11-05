@@ -173,6 +173,8 @@ enum PhotoSource: Hashable, Sendable {
 
 enum GarmentStatus: String, Codable, Sendable {
     case available, sold
+    /// Retirée de la vente par la boutique (visible uniquement dans l'onglet Boutique).
+    case withdrawn
 }
 
 struct Garment: Identifiable, Hashable, Sendable {

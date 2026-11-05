@@ -32,6 +32,7 @@ extension CheckoutDetails {
 /// Enveloppe un service et ajoute des délais réseau précis pour reproduire
 /// les situations de concurrence (réponses qui arrivent dans le désordre).
 actor DelayedService: MarketplaceService {
+    nonisolated let usesExternalPaymentSheet = false
     private let base: MockMarketplaceService
     private let addDelay: Int
     private let removeDelay: Int
@@ -55,6 +56,13 @@ actor DelayedService: MarketplaceService {
     }
 
     func garments(ids: [String]) async throws -> [Garment] { try await base.garments(ids: ids) }
+    func swipeHistory() async throws -> SwipeHistory { try await base.swipeHistory() }
+    func recordSwipe(_ garmentID: String, direction: SwipeDirection) async throws {
+        try await base.recordSwipe(garmentID, direction: direction)
+    }
+    func forgetSwipes(_ garmentIDs: [String]) async throws { try await base.forgetSwipes(garmentIDs) }
+    func loadProfile() async throws -> UserProfile? { try await base.loadProfile() }
+    func saveProfile(_ profile: UserProfile) async throws { try await base.saveProfile(profile) }
     func cart() async throws -> [Garment] { try await base.cart() }
 
     func addToCart(_ garmentID: String) async throws -> Garment {
@@ -69,10 +77,26 @@ actor DelayedService: MarketplaceService {
 
     func quote(_ garmentIDs: [String]) async throws -> PriceQuote { try await base.quote(garmentIDs) }
 
-    func purchase(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PurchaseResult {
-        try await base.purchase(garmentIDs, details: details)
+    func preparePayment(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PaymentPreparation {
+        try await base.preparePayment(garmentIDs, details: details)
     }
+
+    func completePayment(_ preparation: PaymentPreparation, details: CheckoutDetails) async throws -> PurchaseResult {
+        try await base.completePayment(preparation, details: details)
+    }
+
+    func cancelPayment(_ preparation: PaymentPreparation) async { await base.cancelPayment(preparation) }
 
     func orders() async throws -> [Order] { try await base.orders() }
     func events() async -> AsyncStream<MarketplaceEvent> { await base.events() }
+
+    func adminCatalogue() async throws -> [Garment] { try await base.adminCatalogue() }
+    func saveGarment(_ draft: GarmentDraft) async throws -> Garment { try await base.saveGarment(draft) }
+    func setGarmentWithdrawn(_ garmentID: String, withdrawn: Bool) async throws {
+        try await base.setGarmentWithdrawn(garmentID, withdrawn: withdrawn)
+    }
+    func adminOrders() async throws -> [Order] { try await base.adminOrders() }
+    func updateOrder(_ orderID: String, status: OrderStatus, trackingNumber: String?) async throws -> Order {
+        try await base.updateOrder(orderID, status: status, trackingNumber: trackingNumber)
+    }
 }

@@ -2,9 +2,11 @@ import SwiftUI
 
 @main
 struct StyleMatchApp: App {
-    /// Pour brancher le vrai backend, remplace `MockMarketplaceService()`
-    /// par ton implémentation de `MarketplaceService` (ex. Supabase).
-    @State private var store = AppStore(service: MockMarketplaceService())
+    /// Supabase + Stripe si `AppConfig` est rempli, sinon mode démo.
+    @State private var store: AppStore = {
+        let backend = Backend.make()
+        return AppStore(service: backend.service, auth: backend.auth)
+    }()
 
     var body: some Scene {
         WindowGroup {

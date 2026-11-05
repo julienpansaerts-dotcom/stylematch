@@ -3,9 +3,26 @@ import SwiftUI
 /// Profil : coordonnées, livraison, paiement et suivi des commandes.
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
+    @State private var confirmDeletion = false
+    @State private var isDeleting = false
 
     var body: some View {
         NavigationStack {
+            Group {
+                if store.isSignedIn {
+                    content
+                } else {
+                    SignInPrompt(
+                        title: "Ton profil",
+                        message: "Connecte-toi pour enregistrer ton adresse, acheter et suivre tes commandes."
+                    )
+                }
+            }
+            .navigationTitle("Profil")
+        }
+    }
+
+    private var content: some View {
             List {
                 Section {
                     header
@@ -32,7 +49,7 @@ struct ProfileView: View {
                 }
 
                 Section {
-                    ForEach(UserProfile.Part.allCases) { part in
+                    ForEach(store.profileParts) { part in
                         NavigationLink {
                             ProfileFormDestination(part: part)
                         } label: {
@@ -66,17 +83,47 @@ struct ProfileView: View {
                 }
 
                 Section {
+                    LabeledContent("Connecté avec", value: store.account?.email ?? "")
+                    Button("Se déconnecter") {
+                        Task { await store.signOut() }
+                    }
+                    Button("Supprimer mon compte", role: .destructive) {
+                        confirmDeletion = true
+                    }
+                    .disabled(isDeleting)
+                } header: {
+                    Text("Compte")
+                } footer: {
+                    Text("La suppression efface ton profil, ton panier et ton historique. Les factures de tes commandes sont conservées, comme l'exige la loi.")
+                }
+
+                Section {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("StyleMatch 1.0")
                             .font(.footnote.weight(.semibold))
-                        Text("Mode démo : les autres acheteurs sont simulés. Des pièces deviennent HOT et certaines sont achetées en direct par d'autres personnes.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if Backend.isDemo {
+                            Text("Mode démo : les autres acheteurs sont simulés. Des pièces deviennent HOT et certaines sont achetées en direct par d'autres personnes.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
-            .navigationTitle("Profil")
-        }
+            .confirmationDialog(
+                "Supprimer définitivement ton compte ?",
+                isPresented: $confirmDeletion,
+                titleVisibility: .visible
+            ) {
+                Button("Supprimer mon compte", role: .destructive) {
+                    isDeleting = true
+                    Task {
+                        _ = await store.deleteAccount()
+                        isDeleting = false
+                    }
+                }
+            } message: {
+                Text("Cette action est irréversible.")
+            }
     }
 
     private var header: some View {

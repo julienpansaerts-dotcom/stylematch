@@ -10,7 +10,12 @@ struct CartView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.cart.isEmpty && store.lostItems.isEmpty {
+                if !store.isSignedIn {
+                    SignInPrompt(
+                        title: "Ton panier",
+                        message: "Connecte-toi pour garder tes coups de cœur et les acheter."
+                    )
+                } else if store.cart.isEmpty && store.lostItems.isEmpty {
                     emptyState
                 } else {
                     list

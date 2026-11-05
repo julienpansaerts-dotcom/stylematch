@@ -30,7 +30,16 @@ struct CheckoutRequest: Identifiable {
 enum CheckoutOutcome {
     case success(order: Order, unavailable: [Garment])
     case allUnavailable([Garment])
+    /// Paiement accepté, commande pas encore confirmée par le serveur.
+    case pending(String)
     case failure(String)
+}
+
+/// Étape du paiement : soit il faut présenter la feuille de paiement Stripe,
+/// soit c'est déjà terminé (mode démo, erreur, pièces indisponibles).
+enum PaymentStep {
+    case ready(PaymentPreparation, CheckoutDetails)
+    case finished(CheckoutOutcome)
 }
 
 /// État global de l'application (source de vérité pour toutes les vues).
@@ -38,8 +47,11 @@ enum CheckoutOutcome {
 @Observable
 final class AppStore {
     let service: any MarketplaceService
+    let auth: any AuthProvider
     private let persistence: LocalPersistence
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
+    @ObservationIgnored private var authTask: Task<Void, Never>?
+    @ObservationIgnored private var hasLoadedOnce = false
     @ObservationIgnored private var pendingBuyNow: Garment?
     /// Opérations panier en cours, chaînées par vêtement : un retrait part
     /// toujours APRÈS l'ajout correspondant, même si le réseau est lent.
@@ -65,20 +77,35 @@ final class AppStore {
     private(set) var orders: [Order] = []
     private(set) var soldIDs: Set<String> = []
 
-    // MARK: Préférences
+    /// Pièces en cours de paiement par MOI (leur vente n'est pas un « Trop tard »).
+    private(set) var payingIDs: Set<String> = []
+
+    // MARK: Compte & préférences
+    private(set) var account: Account?
     private(set) var filters: FeedFilters
     private(set) var profile: UserProfile
 
     // MARK: UI
     var notices: [Notice] = []
     var checkout: CheckoutRequest?
+    /// Affiche l'écran de connexion (swipe droite / haut sans compte…).
+    var showSignIn = false
 
-    init(service: any MarketplaceService, persistence: LocalPersistence = LocalPersistence()) {
+    init(
+        service: any MarketplaceService,
+        auth: any AuthProvider = DemoAuthProvider(),
+        persistence: LocalPersistence = LocalPersistence()
+    ) {
         self.service = service
+        self.auth = auth
         self.persistence = persistence
         self.filters = persistence.loadFilters() ?? FeedFilters()
         self.profile = persistence.loadProfile() ?? UserProfile()
     }
+
+    var isSignedIn: Bool { account != nil }
+    var isAdmin: Bool { account?.isAdmin ?? false }
+    var usesExternalPaymentSheet: Bool { service.usesExternalPaymentSheet }
 
     // MARK: - Démarrage
 
@@ -89,6 +116,41 @@ final class AppStore {
             for await event in stream {
                 self?.handle(event)
             }
+        }
+
+        // Le premier état de connexion est attendu pour charger les bonnes données.
+        let accounts = await auth.accountChanges()
+        var iterator = accounts.makeAsyncIterator()
+        let first: Account? = (await iterator.next()) ?? nil
+        await accountDidChange(first)
+        authTask = Task { [weak self, iterator] in
+            var remaining = iterator
+            while let next = await remaining.next() {
+                await self?.accountDidChange(next)
+            }
+        }
+    }
+
+    private func accountDidChange(_ newAccount: Account?) async {
+        let changed = newAccount?.id != account?.id
+        account = newAccount
+        guard changed || !hasLoadedOnce else { return }
+        hasLoadedOnce = true
+        lastSwipe = nil
+        lostItems = []
+
+        if newAccount != nil {
+            if let history = try? await service.swipeHistory() {
+                passedIDs = history.passed
+                likedIDs = history.liked
+            }
+            await syncProfileFromServer()
+            showSignIn = false
+        } else {
+            cart = []
+            orders = []
+            passedIDs = []
+            likedIDs = []
         }
         await refreshCart()
         await refreshOrders()
@@ -198,11 +260,19 @@ final class AppStore {
             return
         }
 
+        if direction != .left && !isSignedIn {
+            // Panier et achat demandent un compte : la carte revient sur la pile.
+            deck.insert(garment, at: 0)
+            showSignIn = true
+            return
+        }
+
         switch direction {
         case .left:
             passedIDs.removeAll { $0 == garment.id }
             passedIDs.append(garment.id)
             lastSwipe = (garment, .left)
+            sendSwipe(garment.id, .left)
             Haptics.impact(.light)
         case .right:
             likedIDs.insert(garment.id)
@@ -225,10 +295,12 @@ final class AppStore {
         switch last.direction {
         case .left:
             passedIDs.removeAll { $0 == garment.id }
+            sendForgetSwipe(garment.id)
         case .right:
             likedIDs.remove(garment.id)
             cart.removeAll { $0.id == garment.id }
             sendRemoveFromCart(garment.id)
+            sendForgetSwipe(garment.id)
         case .up:
             break
         }
@@ -254,6 +326,9 @@ final class AppStore {
             }
             let candidateIDs = Set(candidates.map(\.id))
             passedIDs.removeAll { candidateIDs.contains($0) || soldPassed.contains($0) }
+            if isSignedIn {
+                try? await service.forgetSwipes(Array(candidateIDs))
+            }
             let existing = Set(deck.map(\.id))
             deck.insert(contentsOf: candidates.filter { !existing.contains($0.id) }, at: 0)
             lastSwipe = nil
@@ -287,6 +362,7 @@ final class AppStore {
             guard self.cart.contains(where: { $0.id == garment.id }) else { return }
             do {
                 let updated = try await self.service.addToCart(garment.id)
+                try? await self.service.recordSwipe(garment.id, direction: .right)
                 if let index = self.cart.firstIndex(where: { $0.id == updated.id }) {
                     self.cart[index] = updated
                 }
@@ -305,6 +381,20 @@ final class AppStore {
     func removeFromCart(_ garment: Garment) {
         cart.removeAll { $0.id == garment.id }
         sendRemoveFromCart(garment.id)
+    }
+
+    private func sendSwipe(_ garmentID: String, _ direction: SwipeDirection) {
+        guard isSignedIn else { return }
+        enqueueCartOperation(for: garmentID) { [weak self] in
+            try? await self?.service.recordSwipe(garmentID, direction: direction)
+        }
+    }
+
+    private func sendForgetSwipe(_ garmentID: String) {
+        guard isSignedIn else { return }
+        enqueueCartOperation(for: garmentID) { [weak self] in
+            try? await self?.service.forgetSwipes([garmentID])
+        }
     }
 
     private func sendRemoveFromCart(_ garmentID: String) {
@@ -358,38 +448,107 @@ final class AppStore {
         try await service.quote(garments.map(\.id))
     }
 
-    func confirmCheckout(_ request: CheckoutRequest) async -> CheckoutOutcome {
-        guard profile.isReadyForCheckout, let payment = profile.payment else {
-            return .failure("Complète ton profil (coordonnées, adresse et paiement) pour acheter.")
+    /// Parties du profil nécessaires pour acheter (avec Stripe, la carte se saisit au paiement).
+    var profileParts: [UserProfile.Part] {
+        usesExternalPaymentSheet ? [.personal, .address] : UserProfile.Part.allCases
+    }
+
+    var missingCheckoutParts: [UserProfile.Part] {
+        profileParts.filter { !profile.isComplete($0) }
+    }
+
+    /// 1re étape : réserve les pièces et prépare le paiement.
+    func preparePayment(_ request: CheckoutRequest) async -> PaymentStep {
+        guard isSignedIn else {
+            showSignIn = true
+            return .finished(.failure("Connecte-toi pour acheter."))
+        }
+        guard missingCheckoutParts.isEmpty else {
+            return .finished(.failure("Complète ton profil (coordonnées et adresse) pour acheter."))
         }
         let details = CheckoutDetails(
             buyerName: profile.fullName,
             address: profile.address,
             deliveryMethod: profile.deliveryMethod,
             relayPoint: profile.relayPoint,
-            payment: payment
+            payment: usesExternalPaymentSheet ? nil : profile.payment
         )
+        let ids = request.garments.map(\.id)
+        payingIDs.formUnion(ids)
         do {
-            let result = try await service.purchase(request.garments.map(\.id), details: details)
-            let boughtIDs = Set(result.order?.items.map(\.id) ?? [])
-            let unavailableIDs = Set(result.unavailable.map(\.id))
+            let preparation = try await service.preparePayment(ids, details: details)
+            markUnavailable(preparation.unavailable)
+            guard !preparation.reservedIDs.isEmpty else {
+                payingIDs.subtract(ids)
+                pendingBuyNow = nil
+                return .finished(.allUnavailable(preparation.unavailable))
+            }
+            return .ready(preparation, details)
+        } catch {
+            payingIDs.subtract(ids)
+            return .finished(.failure(error.localizedDescription))
+        }
+    }
 
-            cart.removeAll { boughtIDs.contains($0.id) || unavailableIDs.contains($0.id) }
-            deck.removeAll { boughtIDs.contains($0.id) || unavailableIDs.contains($0.id) }
-            soldIDs.formUnion(boughtIDs)
-            soldIDs.formUnion(unavailableIDs)
+    /// 2e étape (après la feuille de paiement) : récupère la commande.
+    func finishPayment(_ preparation: PaymentPreparation, details: CheckoutDetails) async -> CheckoutOutcome {
+        defer { payingIDs.subtract(preparation.reservedIDs) }
+        do {
+            let result = try await service.completePayment(preparation, details: details)
+            return applyPurchase(result)
+        } catch MarketplaceError.paymentPending {
             pendingBuyNow = nil
-
-            guard let order = result.order else {
-                return .allUnavailable(result.unavailable)
+            cart.removeAll { preparation.reservedIDs.contains($0.id) }
+            deck.removeAll { preparation.reservedIDs.contains($0.id) }
+            Task {
+                try? await Task.sleep(for: .seconds(10))
+                await refreshOrders()
             }
-            if !orders.contains(where: { $0.id == order.id }) {
-                orders.insert(order, at: 0)
-            }
-            return .success(order: order, unavailable: result.unavailable)
+            return .pending(MarketplaceError.paymentPending.localizedDescription)
         } catch {
             return .failure(error.localizedDescription)
         }
+    }
+
+    /// Feuille de paiement fermée sans payer : les pièces sont libérées.
+    func abandonPayment(_ preparation: PaymentPreparation) async {
+        payingIDs.subtract(preparation.reservedIDs)
+        await service.cancelPayment(preparation)
+    }
+
+    /// Paiement en une étape (mode démo, tests).
+    func confirmCheckout(_ request: CheckoutRequest) async -> CheckoutOutcome {
+        switch await preparePayment(request) {
+        case .finished(let outcome):
+            return outcome
+        case let .ready(preparation, details):
+            return await finishPayment(preparation, details: details)
+        }
+    }
+
+    private func markUnavailable(_ garments: [Garment]) {
+        let ids = Set(garments.map(\.id))
+        guard !ids.isEmpty else { return }
+        soldIDs.formUnion(ids)
+        cart.removeAll { ids.contains($0.id) }
+        deck.removeAll { ids.contains($0.id) }
+    }
+
+    private func applyPurchase(_ result: PurchaseResult) -> CheckoutOutcome {
+        let boughtIDs = Set(result.order?.items.map(\.id) ?? [])
+        cart.removeAll { boughtIDs.contains($0.id) }
+        deck.removeAll { boughtIDs.contains($0.id) }
+        soldIDs.formUnion(boughtIDs)
+        markUnavailable(result.unavailable)
+        pendingBuyNow = nil
+
+        guard let order = result.order else {
+            return .allUnavailable(result.unavailable)
+        }
+        if !orders.contains(where: { $0.id == order.id }) {
+            orders.insert(order, at: 0)
+        }
+        return .success(order: order, unavailable: result.unavailable)
     }
 
     /// Appelé à la fermeture de la feuille de paiement.
@@ -413,6 +572,82 @@ final class AppStore {
     func updateProfile(_ newProfile: UserProfile) {
         profile = newProfile
         persistence.saveProfile(newProfile)
+        guard isSignedIn else { return }
+        Task { try? await service.saveProfile(newProfile) }
+    }
+
+    /// Le serveur fait foi pour les coordonnées ; la carte du mode démo reste locale.
+    private func syncProfileFromServer() async {
+        guard let server = try? await service.loadProfile() else {
+            if isSignedIn { try? await service.saveProfile(profile) }
+            return
+        }
+        let serverHasData = server.isPersonalInfoComplete || server.address.isComplete
+        if serverHasData {
+            var merged = server
+            merged.payment = profile.payment
+            if merged.email.isEmpty { merged.email = account?.email ?? profile.email }
+            profile = merged
+            persistence.saveProfile(merged)
+        } else {
+            if profile.email.isEmpty, let email = account?.email { profile.email = email }
+            var withNames = profile
+            if withNames.firstName.isEmpty { withNames.firstName = server.firstName }
+            if withNames.lastName.isEmpty { withNames.lastName = server.lastName }
+            profile = withNames
+            persistence.saveProfile(withNames)
+            try? await service.saveProfile(withNames)
+        }
+    }
+
+    // MARK: - Connexion
+
+    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async throws {
+        try await auth.signInWithApple(idToken: idToken, nonce: nonce, fullName: fullName)
+    }
+
+    func sendEmailCode(to email: String) async throws {
+        try await auth.sendEmailCode(to: email)
+    }
+
+    func verifyEmailCode(email: String, code: String) async throws {
+        try await auth.verifyEmailCode(email: email, code: code)
+    }
+
+    func signOut() async {
+        do {
+            try await auth.signOut()
+            persistence.clearProfile()
+            profile = UserProfile()
+        } catch {
+            post(error)
+        }
+    }
+
+    /// Suppression définitive du compte (profil, panier, historique).
+    func deleteAccount() async -> Bool {
+        do {
+            try await auth.deleteAccount()
+            persistence.clearProfile()
+            profile = UserProfile()
+            post(Notice(kind: .info, title: "Compte supprimé", message: "Tes données personnelles ont été effacées."))
+            return true
+        } catch {
+            post(error)
+            return false
+        }
+    }
+
+    // MARK: - Boutique
+
+    func adminCatalogue() async throws -> [Garment] { try await service.adminCatalogue() }
+    func saveGarment(_ draft: GarmentDraft) async throws -> Garment { try await service.saveGarment(draft) }
+    func setGarmentWithdrawn(_ id: String, withdrawn: Bool) async throws {
+        try await service.setGarmentWithdrawn(id, withdrawn: withdrawn)
+    }
+    func adminOrders() async throws -> [Order] { try await service.adminOrders() }
+    func updateOrder(_ id: String, status: OrderStatus, trackingNumber: String?) async throws -> Order {
+        try await service.updateOrder(id, status: status, trackingNumber: trackingNumber)
     }
 
     func setDeliveryMethod(_ method: DeliveryMethod) {
@@ -438,7 +673,8 @@ final class AppStore {
             }
             guard let garment = cart.first(where: { $0.id == id }) else { return }
             cart.removeAll { $0.id == id }
-            guard !byCurrentUser else { return }
+            // Ma propre commande (le webhook peut arriver avant la fin du paiement).
+            guard !byCurrentUser, !payingIDs.contains(id), !purchasedIDs.contains(id) else { return }
             var lost = garment
             lost.status = .sold
             lostItems.removeAll { $0.id == id }
