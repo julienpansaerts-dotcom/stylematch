@@ -105,6 +105,11 @@ end $$;
 -- ---------------------------------------------------------------- Paiement réussi
 reset role;
 set role service_role;
+select test_assert(
+    (reserve_garments('00000000-0000-0000-0000-0000000000a1', array['10000000-0000-0000-0000-000000000001'::uuid], 'relayPoint')
+        ->> 'total_cents')::int = 6500 + 290 + 395,
+    'la réservation renvoie le montant exact à payer');
+
 insert into payments (payment_intent, buyer_id, garment_ids, amount_cents, delivery_method, shipping_address, buyer_name)
 values ('pi_alice', '00000000-0000-0000-0000-0000000000a1', array['10000000-0000-0000-0000-000000000001'::uuid],
         6500 + shipping_cents('home') + service_fee_cents(6500), 'home', '{"city": "Paris"}', 'Alice');

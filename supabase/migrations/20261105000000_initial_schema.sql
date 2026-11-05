@@ -287,7 +287,11 @@ $$;
 -- ---------------------------------------------------------------------
 -- RÉSERVATION puis FINALISATION (appelées par les Edge Functions, service_role)
 -- ---------------------------------------------------------------------
-create or replace function reserve_garments(p_buyer uuid, p_garment_ids uuid[]) returns jsonb
+create or replace function reserve_garments(
+    p_buyer uuid,
+    p_garment_ids uuid[],
+    p_method delivery_method default 'home'
+) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
     v_reserved    uuid[];
@@ -316,7 +320,12 @@ begin
         'reserved',          v_reserved,
         'unavailable',       v_unavailable,
         'subtotal_cents',    v_subtotal,
-        'service_fee_cents', service_fee_cents(v_subtotal)
+        'shipping_cents',    case when v_subtotal > 0 then shipping_cents(p_method) else 0 end,
+        'service_fee_cents', service_fee_cents(v_subtotal),
+        -- Montant exact à faire payer (mêmes règles que la commande finale).
+        'total_cents',       case when v_subtotal > 0
+                                  then v_subtotal + shipping_cents(p_method) + service_fee_cents(v_subtotal)
+                                  else 0 end
     );
 end $$;
 
@@ -419,11 +428,11 @@ begin
 end $$;
 
 -- Seul le backend (service_role, via les Edge Functions) réserve et finalise.
-revoke all on function reserve_garments(uuid, uuid[]) from public, anon, authenticated;
+revoke all on function reserve_garments(uuid, uuid[], delivery_method) from public, anon, authenticated;
 revoke all on function release_garments(uuid, uuid[]) from public, anon, authenticated;
 revoke all on function finalize_payment(text) from public, anon, authenticated;
 revoke all on function cancel_payment(text) from public, anon, authenticated;
-grant execute on function reserve_garments(uuid, uuid[]) to service_role;
+grant execute on function reserve_garments(uuid, uuid[], delivery_method) to service_role;
 grant execute on function release_garments(uuid, uuid[]) to service_role;
 grant execute on function finalize_payment(text) to service_role;
 grant execute on function cancel_payment(text) to service_role;
