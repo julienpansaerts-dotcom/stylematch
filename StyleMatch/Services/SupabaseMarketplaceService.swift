@@ -81,7 +81,7 @@ final class SupabaseMarketplaceService: MarketplaceService, @unchecked Sendable 
 
     func cart() async throws -> [Garment] {
         guard client.auth.currentUser != nil else { return [] }
-        let rows: [CartRow] = try await call {
+        let rows: [DBCartRow] = try await call {
             try await self.client.from("cart_items").select("garment:garments(*)")
                 .order("added_at", ascending: false).execute().value
         }
@@ -146,8 +146,8 @@ final class SupabaseMarketplaceService: MarketplaceService, @unchecked Sendable 
         }
         // La commande est créée par le webhook Stripe : on l'attend quelques secondes.
         for _ in 0..<30 {
-            let rows: [OrderRow] = try await call {
-                try await self.client.from("orders").select(OrderRow.columns)
+            let rows: [DBOrderRow] = try await call {
+                try await self.client.from("orders").select(DBOrderRow.columns)
                     .eq("stripe_payment_intent", value: paymentIntentID).execute().value
             }
             if let order = rows.first?.order {
@@ -170,8 +170,8 @@ final class SupabaseMarketplaceService: MarketplaceService, @unchecked Sendable 
 
     func orders() async throws -> [Order] {
         guard let user = client.auth.currentUser else { return [] }
-        let rows: [OrderRow] = try await call {
-            try await self.client.from("orders").select(OrderRow.columns)
+        let rows: [DBOrderRow] = try await call {
+            try await self.client.from("orders").select(DBOrderRow.columns)
                 .eq("buyer_id", value: user.id.uuidString.lowercased())
                 .order("created_at", ascending: false).execute().value
         }
@@ -233,7 +233,7 @@ final class SupabaseMarketplaceService: MarketplaceService, @unchecked Sendable 
     }
 
     private func order(id: String) async throws -> Order? {
-        let rows: [OrderRow] = try await client.from("orders").select(OrderRow.columns)
+        let rows: [DBOrderRow] = try await client.from("orders").select(DBOrderRow.columns)
             .eq("id", value: id).execute().value
         return rows.first?.order
     }
@@ -286,8 +286,8 @@ final class SupabaseMarketplaceService: MarketplaceService, @unchecked Sendable 
     }
 
     func adminOrders() async throws -> [Order] {
-        let rows: [OrderRow] = try await call {
-            try await self.client.from("orders").select(OrderRow.columns)
+        let rows: [DBOrderRow] = try await call {
+            try await self.client.from("orders").select(DBOrderRow.columns)
                 .order("created_at", ascending: false).execute().value
         }
         return rows.map(\.order)
@@ -446,7 +446,7 @@ private struct SwipeInsert: Encodable {
     let direction: String
 }
 
-private struct CartRow: Decodable {
+private struct DBCartRow: Decodable {
     let garment: GarmentRow?
 }
 
@@ -546,7 +546,7 @@ private struct OrderUpdate: Encodable {
     let tracking_number: String?
 }
 
-private struct OrderRow: Decodable {
+private struct DBOrderRow: Decodable {
     static let columns = "*, order_items(price_cents, garment:garments(*)), order_events(status, created_at)"
 
     struct Item: Decodable {
