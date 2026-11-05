@@ -61,7 +61,7 @@ C'est le cœur du problème : deux personnes peuvent avoir la même pièce uniqu
 leur panier, mais une seule peut l'acheter.
 
 1. **Achat atomique côté serveur** — `purchase_garments` (voir
-   `backend/supabase/schema.sql`) verrouille les lignes avec `SELECT … FOR UPDATE`.
+   `supabase/migrations/`) verrouille les lignes avec `SELECT … FOR UPDATE`.
    Si deux acheteurs paient en même temps, le second attend puis voit la pièce
    « vendue ». La contrainte `UNIQUE (garment_id)` sur `order_items` empêche
    physiquement une double vente.
@@ -95,35 +95,37 @@ Le profil (nom, e-mail, adresse, 4 derniers chiffres de la carte) est stocké da
 **trousseau iOS** (`KeychainStore`), chiffré et lié à l'appareil. Les anciennes versions qui
 le stockaient en clair dans `UserDefaults` sont migrées automatiquement au lancement.
 
-## Paiement (production)
+## Paiement
 
-1. L'app demande à une **Edge Function** `create-payment` un `PaymentIntent` Stripe
-   (capture manuelle) pour le total. Apple Pay passe par le même flux.
-2. Après autorisation, l'Edge Function appelle `purchase_garments(...)` avec la clé
-   `service_role`.
-3. Elle **capture** uniquement le montant des pièces obtenues (ou annule
-   l'autorisation si tout a été vendu).
+1. L'app appelle l'Edge Function **`create-payment`** : elle **réserve** les pièces
+   15 minutes (`reserve_garments`) et crée un `PaymentIntent` Stripe du montant exact
+   calculé par la base (mêmes fonctions que le devis).
+2. L'app présente la **feuille de paiement Stripe** (carte ou Apple Pay).
+3. Stripe appelle le webhook **`stripe-webhook`** : `finalize_payment` marque les pièces
+   vendues, les retire de **tous** les paniers et crée la commande. Si une pièce a échappé
+   à l'acheteur (réservation expirée puis rachetée), elle lui est remboursée.
+4. L'app attend la commande puis l'affiche. Paiement abandonné : `cancel_my_payment`
+   libère les pièces immédiatement (sinon elles se libèrent à l'expiration).
 
-Aucun numéro de carte ne transite par l'app ni par la base : le formulaire de démo ne
-conserve que la marque et les 4 derniers chiffres.
+Aucun numéro de carte ne transite par l'app ni par la base.
 
-## Brancher le vrai backend
+## Connexion et rôles
 
-1. Créer un projet Supabase et exécuter `backend/supabase/schema.sql`.
-2. Ajouter le package Swift `supabase-swift` dans Xcode.
-3. Écrire `SupabaseMarketplaceService: MarketplaceService` :
-   * `feed` → `rpc("feed")` + filtres ;
-   * `addToCart` / `removeFromCart` → insert / delete sur `cart_items` (+ `swipes`) ;
-   * `purchase` → appel de l'Edge Function de paiement ;
-   * `events` → canal Realtime sur `garments` et `orders`, converti en
-     `AsyncStream<MarketplaceEvent>`.
-4. Dans `StyleMatchApp.swift`, remplacer `MockMarketplaceService()` par le nouveau
-   service. Aucune vue n'a besoin d'être modifiée.
+* **Connexion** : « Se connecter avec Apple » (jeton + nonce) ou code à 6 chiffres
+  reçu par e-mail (Supabase Auth). On peut parcourir la pile sans compte ; le panier
+  et l'achat demandent de se connecter.
+* **Boutique** : `profiles.is_admin = true` donne l'onglet *Boutique* (publier,
+  modifier, retirer des pièces, expédier les commandes). La base l'impose par la RLS :
+  un client ne peut ni publier ni se donner ce rôle.
+* **Historique des swipes** stocké sur le serveur : une pièce likée ne revient jamais,
+  même sur un autre iPhone.
+
+## Mise en production
+
+Voir [`PRODUCTION.md`](PRODUCTION.md).
 
 ## Pistes pour la suite
 
-* Authentification (Sign in with Apple) et profils synchronisés.
-* Notifications push : « une pièce de ton panier devient HOT », « vendue ».
-* Réservation de 10 min pendant le paiement (`status = 'reserved'`).
-* Back-office de la boutique (seul vendeur) : mise en ligne d'une pièce avec photos.
-* Paiement réel Stripe / Apple Pay (voir ci-dessus).
+* Notifications push : « une pièce de ton panier devient HOT », « vendue », « expédiée ».
+* Carte des points relais (API Mondial Relay) et étiquettes d'expédition automatiques.
+* Statistiques de la boutique (pièces les plus likées, taux de conversion).
