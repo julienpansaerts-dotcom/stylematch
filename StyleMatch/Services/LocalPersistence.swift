@@ -39,6 +39,12 @@ struct LocalPersistence {
         keychain.set(data, for: Key.profile.rawValue)
     }
 
+    /// Déconnexion / suppression du compte : plus aucune donnée personnelle sur l'appareil.
+    func clearProfile() {
+        keychain.delete(Key.profile.rawValue)
+        defaults.removeObject(forKey: Key.profile.rawValue)
+    }
+
     func loadFilters() -> FeedFilters? { load(FeedFilters.self, .filters) }
     func saveFilters(_ filters: FeedFilters) { save(filters, .filters) }
 

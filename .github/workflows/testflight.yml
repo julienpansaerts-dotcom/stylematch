@@ -18,6 +18,11 @@ jobs:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      # Configuration publique de l'app (Settings › Secrets and variables › Actions › Variables).
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+      APPLE_PAY_MERCHANT_ID: ${{ vars.APPLE_PAY_MERCHANT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +68,9 @@ jobs:
       - name: Sélectionner Xcode 26+
         run: .github/scripts/select-xcode.sh
 
+      - name: Configuration du backend (Supabase / Stripe)
+        run: .github/scripts/write-app-config.sh
+
       - name: Archiver (sans signature)
         run: |
           # Numéro de build unique et croissant (AAAAMMJJHHMM).
@@ -87,6 +95,14 @@ jobs:
         run: |
           app="$ARCHIVE_PATH/Products/Applications/StyleMatch.app"
           entitlements="$RUNNER_TEMP/StyleMatch.entitlements"
+          extra=""
+          if [ -n "$SUPABASE_URL" ]; then
+            # « Se connecter avec Apple » (activé sur l'identifiant de l'app, voir docs/PRODUCTION.md).
+            extra="$extra<key>com.apple.developer.applesignin</key><array><string>Default</string></array>"
+          fi
+          if [ -n "$APPLE_PAY_MERCHANT_ID" ]; then
+            extra="$extra<key>com.apple.developer.in-app-payments</key><array><string>${APPLE_PAY_MERCHANT_ID}</string></array>"
+          fi
           cat > "$entitlements" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -96,9 +112,11 @@ jobs:
             <string>${TEAM_ID}.${BUNDLE_ID}</string>
             <key>com.apple.developer.team-identifier</key>
             <string>${TEAM_ID}</string>
+            ${extra}
           </dict>
           </plist>
           PLIST
+          plutil -lint "$entitlements"
           codesign --force --sign - --timestamp=none --generate-entitlement-der \
             --entitlements "$entitlements" "$app"
           codesign --verify --deep --strict "$app"

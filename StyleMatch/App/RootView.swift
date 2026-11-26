@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: Hashable {
-    case discover, cart, profile
+    case discover, cart, shop, profile
 }
 
 struct RootView: View {
@@ -20,6 +20,12 @@ struct RootView: View {
                 .tabItem { Label("Panier", systemImage: "bag.fill") }
                 .badge(store.cart.count)
                 .tag(AppTab.cart)
+
+            if store.isAdmin {
+                AdminView()
+                    .tabItem { Label("Boutique", systemImage: "storefront.fill") }
+                    .tag(AppTab.shop)
+            }
 
             ProfileView()
                 .tabItem { Label("Profil", systemImage: "person.crop.circle.fill") }
@@ -41,6 +47,9 @@ struct RootView: View {
         .animation(.spring(duration: 0.4), value: store.notices.first?.id)
         .sheet(item: $store.checkout, onDismiss: { store.checkoutDismissed() }) { request in
             CheckoutView(request: request)
+        }
+        .sheet(isPresented: $store.showSignIn) {
+            SignInView()
         }
     }
 }

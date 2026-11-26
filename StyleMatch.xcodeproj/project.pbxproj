@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5A1F00000000000000000201 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 5A1F00000000000000000203 /* Supabase */; };
+		5A1F00000000000000000202 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 5A1F00000000000000000204 /* StripePaymentSheet */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		5A1F00000000000000000107 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +44,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A1F00000000000000000201 /* Supabase in Frameworks */,
+				5A1F00000000000000000202 /* StripePaymentSheet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +97,8 @@
 			);
 			name = StyleMatch;
 			packageProductDependencies = (
+				5A1F00000000000000000203 /* Supabase */,
+				5A1F00000000000000000204 /* StripePaymentSheet */,
 			);
 			productName = StyleMatch;
 			productReference = 5A1F00000000000000000001 /* StyleMatch.app */;
@@ -147,6 +156,10 @@
 			);
 			mainGroup = 5A1F00000000000000000004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5A1F00000000000000000205 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				5A1F00000000000000000206 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5A1F00000000000000000005 /* Products */;
 			projectDirPath = "";
@@ -274,6 +287,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = StyleMatch;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "L'appareil photo sert à photographier les pièces mises en vente par la boutique.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -304,6 +318,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = StyleMatch;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "L'appareil photo sert à photographier les pièces mises en vente par la boutique.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -391,6 +406,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5A1F00000000000000000205 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 2.55.4;
+			};
+		};
+		5A1F00000000000000000206 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios-spm";
+			requirement = {
+				kind = exactVersion;
+				version = 26.14.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5A1F00000000000000000203 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A1F00000000000000000205 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		5A1F00000000000000000204 /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A1F00000000000000000206 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */;
+			productName = StripePaymentSheet;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5A1F00000000000000000009 /* Project object */;
 }

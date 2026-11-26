@@ -7,10 +7,15 @@ import Foundation
 /// les rend HOT) et achètent parfois une pièce qui est dans TON panier —
 /// elle disparaît alors de ton panier en direct (« Trop tard ! »).
 actor MockMarketplaceService: MarketplaceService {
+    nonisolated let usesExternalPaymentSheet = false
+
     private var catalogue: [String: Garment]
     private var feedOrder: [String]
     private var myCart: [String] = []
     private var myOrders: [Order]
+    private var swipes: [String: SwipeDirection] = [:]
+    private var swipeOrder: [String] = []
+    private var storedProfile: UserProfile?
     private var subscribers: [UUID: AsyncStream<MarketplaceEvent>.Continuation] = [:]
     private var simulationTask: Task<Void, Never>?
     private let simulateOtherUsers: Bool
@@ -42,13 +47,47 @@ actor MockMarketplaceService: MarketplaceService {
         try await networkDelay()
         let result = feedOrder
             .compactMap { catalogue[$0] }
-            .filter { $0.isAvailable && !excluding.contains($0.id) && !myCart.contains($0.id) && filters.matches($0) }
+            .filter {
+                $0.isAvailable && !excluding.contains($0.id) && !myCart.contains($0.id)
+                    && swipes[$0.id] == nil && filters.matches($0)
+            }
         return Array(result.prefix(limit))
     }
 
     func garments(ids: [String]) async throws -> [Garment] {
         try await networkDelay()
         return ids.compactMap { catalogue[$0] }
+    }
+
+    func swipeHistory() async throws -> SwipeHistory {
+        try await networkDelay()
+        return SwipeHistory(
+            passed: swipeOrder.filter { swipes[$0] == .left },
+            liked: Set(swipeOrder.filter { swipes[$0] == .right || swipes[$0] == .up })
+        )
+    }
+
+    func recordSwipe(_ garmentID: String, direction: SwipeDirection) async throws {
+        try await networkDelay()
+        swipeOrder.removeAll { $0 == garmentID }
+        swipeOrder.append(garmentID)
+        swipes[garmentID] = direction
+    }
+
+    func forgetSwipes(_ garmentIDs: [String]) async throws {
+        try await networkDelay()
+        for id in garmentIDs { swipes[id] = nil }
+        swipeOrder.removeAll { garmentIDs.contains($0) }
+    }
+
+    func loadProfile() async throws -> UserProfile? {
+        try await networkDelay()
+        return storedProfile
+    }
+
+    func saveProfile(_ profile: UserProfile) async throws {
+        try await networkDelay()
+        storedProfile = profile
     }
 
     func cart() async throws -> [Garment] {
@@ -94,6 +133,24 @@ actor MockMarketplaceService: MarketplaceService {
         return ServerPricing.quote(for: garmentIDs.compactMap { catalogue[$0] }, requestedIDs: garmentIDs)
     }
 
+    func preparePayment(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PaymentPreparation {
+        let quote = try await quote(garmentIDs)
+        return PaymentPreparation(
+            paymentIntentID: nil,
+            clientSecret: nil, // pas de feuille Stripe en mode démo
+            reservedIDs: garmentIDs,
+            unavailable: [],
+            totalCents: quote.total(for: details.deliveryMethod)
+        )
+    }
+
+    func completePayment(_ preparation: PaymentPreparation, details: CheckoutDetails) async throws -> PurchaseResult {
+        try await purchase(preparation.reservedIDs, details: details)
+    }
+
+    func cancelPayment(_ preparation: PaymentPreparation) async {}
+
+    /// Achat atomique (utilisé par le mode démo et les tests).
     func purchase(_ garmentIDs: [String], details: CheckoutDetails) async throws -> PurchaseResult {
         // Simule l'autorisation bancaire.
         try await Task.sleep(for: .milliseconds(paymentDelay))
@@ -133,10 +190,11 @@ actor MockMarketplaceService: MarketplaceService {
             deliveryMethod: details.deliveryMethod,
             shippingAddress: details.address,
             relayPoint: details.relayPoint,
-            paymentSummary: details.payment.summary,
+            paymentSummary: details.payment?.summary ?? "Carte bancaire",
             trackingNumber: nil,
             status: .confirmed,
-            timeline: [OrderStatusEvent(status: .confirmed, date: now)]
+            timeline: [OrderStatusEvent(status: .confirmed, date: now)],
+            buyerName: details.buyerName
         )
         myOrders.insert(order, at: 0)
 
@@ -144,6 +202,77 @@ actor MockMarketplaceService: MarketplaceService {
             broadcast(.garmentSold(id: garment.id, title: garment.title, byCurrentUser: true))
         }
         return PurchaseResult(order: order, unavailable: unavailable)
+    }
+
+    // MARK: - Boutique
+
+    func adminCatalogue() async throws -> [Garment] {
+        try await networkDelay()
+        return feedOrder.compactMap { catalogue[$0] }
+    }
+
+    func saveGarment(_ draft: GarmentDraft) async throws -> Garment {
+        try await networkDelay()
+        guard let priceCents = draft.priceCents else { throw MarketplaceError.server("Prix invalide.") }
+        // Les nouvelles photos sont écrites dans le cache de l'app (mode démo).
+        var photoURLs = draft.existingPhotos
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("stylematch-photos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for data in draft.newPhotos {
+            let url = folder.appendingPathComponent("\(UUID().uuidString).jpg")
+            try data.write(to: url)
+            photoURLs.append(url)
+        }
+        let id = draft.id ?? UUID().uuidString
+        let previous = catalogue[id]
+        let garment = Garment(
+            id: id,
+            title: draft.title.trimmed,
+            brand: draft.brand.trimmed,
+            summary: draft.summary.trimmed,
+            details: draft.details.trimmed,
+            measurements: draft.measurements.trimmed.isEmpty ? nil : draft.measurements.trimmed,
+            size: draft.size,
+            gender: draft.gender,
+            category: draft.category,
+            condition: draft.condition,
+            color: draft.color,
+            priceCents: priceCents,
+            photos: photoURLs.map { .remote($0) },
+            cartCount: previous?.cartCount ?? 0,
+            status: previous?.status ?? .available
+        )
+        catalogue[id] = garment
+        if previous == nil { feedOrder.insert(id, at: 0) }
+        return garment
+    }
+
+    func setGarmentWithdrawn(_ garmentID: String, withdrawn: Bool) async throws {
+        try await networkDelay()
+        guard var garment = catalogue[garmentID], garment.status != .sold else { return }
+        garment.status = withdrawn ? .withdrawn : .available
+        catalogue[garmentID] = garment
+        if withdrawn {
+            myCart.removeAll { $0 == garmentID }
+            broadcast(.garmentSold(id: garmentID, title: garment.title, byCurrentUser: false))
+        }
+    }
+
+    func adminOrders() async throws -> [Order] {
+        try await networkDelay()
+        return myOrders
+    }
+
+    func updateOrder(_ orderID: String, status: OrderStatus, trackingNumber: String?) async throws -> Order {
+        try await networkDelay()
+        guard let index = myOrders.firstIndex(where: { $0.id == orderID }) else { throw MarketplaceError.notFound }
+        if myOrders[index].status != status {
+            myOrders[index].status = status
+            myOrders[index].timeline.append(OrderStatusEvent(status: status, date: Date()))
+        }
+        myOrders[index].trackingNumber = trackingNumber
+        broadcast(.orderUpdated(myOrders[index]))
+        return myOrders[index]
     }
 
     // MARK: - Temps réel

@@ -1,3 +1,4 @@
+import StripePaymentSheet
 import SwiftUI
 
 /// Feuille de paiement (achat express, achat d'une pièce ou de tout le panier).
@@ -12,6 +13,15 @@ struct CheckoutView: View {
     /// Montants calculés par le serveur (nil pendant le chargement).
     @State private var quote: PriceQuote?
     @State private var quoteError: String?
+    /// Paiement réservé en attente de la feuille Stripe.
+    @State private var pendingPayment: PendingPayment?
+    @State private var paymentSheet: PaymentSheet?
+    @State private var showPaymentSheet = false
+
+    private struct PendingPayment {
+        let preparation: PaymentPreparation
+        let details: CheckoutDetails
+    }
 
     var body: some View {
         NavigationStack {
@@ -34,6 +44,15 @@ struct CheckoutView: View {
             }
         }
         .interactiveDismissDisabled(isProcessing)
+        .background {
+            if let paymentSheet {
+                Color.clear.paymentSheet(
+                    isPresented: $showPaymentSheet,
+                    paymentSheet: paymentSheet,
+                    onCompletion: paymentSheetCompleted
+                )
+            }
+        }
     }
 
     private var title: String {
@@ -80,9 +99,9 @@ struct CheckoutView: View {
                 }
             }
 
-            if !store.profile.isReadyForCheckout {
+            if !store.missingCheckoutParts.isEmpty {
                 Section {
-                    ForEach(store.profile.missingSections) { part in
+                    ForEach(store.missingCheckoutParts) { part in
                         NavigationLink {
                             ProfileFormDestination(part: part)
                         } label: {
@@ -117,14 +136,27 @@ struct CheckoutView: View {
             }
 
             Section("Paiement") {
-                NavigationLink {
-                    PaymentFormView()
-                } label: {
-                    if let payment = store.profile.payment {
-                        Label(payment.summary, systemImage: payment.kind.symbol)
-                    } else {
-                        Label("Ajouter un moyen de paiement", systemImage: "creditcard")
-                            .foregroundStyle(.orange)
+                if store.usesExternalPaymentSheet {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Carte bancaire ou Apple Pay")
+                            Text("Paiement sécurisé par Stripe, à l'étape suivante.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "lock.shield.fill")
+                    }
+                } else {
+                    NavigationLink {
+                        PaymentFormView()
+                    } label: {
+                        if let payment = store.profile.payment {
+                            Label(payment.summary, systemImage: payment.kind.symbol)
+                        } else {
+                            Label("Ajouter un moyen de paiement", systemImage: "creditcard")
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
@@ -176,7 +208,7 @@ struct CheckoutView: View {
             }
         }
         .buttonStyle(GradientButtonStyle())
-        .disabled(!store.profile.isReadyForCheckout || availableGarments.isEmpty || isProcessing || quote == nil)
+        .disabled(!store.missingCheckoutParts.isEmpty || availableGarments.isEmpty || isProcessing || quote == nil)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
@@ -210,15 +242,50 @@ struct CheckoutView: View {
     private func pay() {
         isProcessing = true
         Task {
-            let result = await store.confirmCheckout(request)
-            isProcessing = false
-            switch result {
-            case .success: Haptics.success()
-            case .allUnavailable: Haptics.warning()
-            case .failure: Haptics.error()
+            switch await store.preparePayment(request) {
+            case .finished(let result):
+                finish(result)
+            case let .ready(preparation, details):
+                if let clientSecret = preparation.clientSecret {
+                    // Vrai paiement : feuille Stripe (carte / Apple Pay).
+                    pendingPayment = PendingPayment(preparation: preparation, details: details)
+                    paymentSheet = StripeCheckout.makeSheet(clientSecret: clientSecret, profile: store.profile)
+                    showPaymentSheet = true
+                } else {
+                    // Mode démo : pas de feuille, paiement simulé.
+                    finish(await store.finishPayment(preparation, details: details))
+                }
             }
-            withAnimation(.spring) { outcome = result }
         }
+    }
+
+    private func paymentSheetCompleted(_ result: PaymentSheetResult) {
+        guard let pending = pendingPayment else { return }
+        pendingPayment = nil
+        switch result {
+        case .completed:
+            Task { finish(await store.finishPayment(pending.preparation, details: pending.details)) }
+        case .canceled:
+            Task {
+                await store.abandonPayment(pending.preparation)
+                isProcessing = false
+            }
+        case .failed(let error):
+            Task {
+                await store.abandonPayment(pending.preparation)
+                finish(.failure(error.localizedDescription))
+            }
+        }
+    }
+
+    private func finish(_ result: CheckoutOutcome) {
+        isProcessing = false
+        switch result {
+        case .success, .pending: Haptics.success()
+        case .allUnavailable: Haptics.warning()
+        case .failure: Haptics.error()
+        }
+        withAnimation(.spring) { outcome = result }
     }
 }
 
@@ -283,6 +350,16 @@ private struct CheckoutResultView: View {
                 if !unavailable.isEmpty {
                     unavailableBox(unavailable)
                 }
+
+            case .pending(let message):
+                Image(systemName: "clock.badge.checkmark.fill")
+                    .font(.system(size: 76))
+                    .foregroundStyle(Theme.like)
+                Text("Paiement reçu !")
+                    .font(.title.weight(.bold))
+                Text(message)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
 
             case let .allUnavailable(items):
                 Image(systemName: "heart.slash.fill")

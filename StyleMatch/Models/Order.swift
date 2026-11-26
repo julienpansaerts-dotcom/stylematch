@@ -50,6 +50,8 @@ struct Order: Identifiable, Hashable, Sendable {
     var trackingNumber: String?
     var status: OrderStatus
     var timeline: [OrderStatusEvent]
+    /// Destinataire (pour l'étiquette d'expédition côté boutique).
+    var buyerName: String = ""
 
     var totalCents: Int { subtotalCents + shippingCents + serviceFeeCents }
     var carrier: String { deliveryMethod.carrier }

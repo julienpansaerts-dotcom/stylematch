@@ -1,0 +1,13 @@
+# Configuration Supabase CLI (utilisée par le workflow GitHub « Deploy backend »).
+project_id = "stylematch"
+
+[functions.create-payment]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+# Appelée par Stripe (pas d'utilisateur connecté) : l'authenticité est
+# vérifiée par la signature du webhook.
+[functions.stripe-webhook]
+verify_jwt = false

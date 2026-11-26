@@ -62,10 +62,13 @@ l'envoie sur TestFlight. Configuration pas à pas (une seule fois) :
 *Team* (ton identifiant Apple suffit), puis sélectionne ton iPhone comme destination. Si le
 bundle identifier `stylematch` est refusé, remplace-le par un identifiant unique.
 
-## Mode démo
+## Vrai serveur ou mode démo
 
-L'application tourne pour l'instant avec un **backend simulé** (`MockMarketplaceService`) et
-32 pièces de démonstration. Les autres acheteurs sont simulés :
+- **Avec Supabase et Stripe configurés** (voir [`docs/PRODUCTION.md`](docs/PRODUCTION.md)) : vrais
+  comptes (Apple ou code par e-mail), vrai catalogue publié depuis l'onglet **Boutique**, paniers
+  partagés en temps réel, paiement par carte / Apple Pay via Stripe, suivi des commandes.
+- **Sinon, mode démo** : l'app tourne avec un serveur simulé (`MockMarketplaceService`), un compte
+  boutique de démonstration et 32 pièces. Les autres acheteurs sont simulés :
 - des pièces sont ajoutées aux paniers en continu (le compteur bouge, des pièces deviennent HOT) ;
 - environ toutes les 45 secondes, quelqu'un achète une pièce — parfois une pièce de **ton** panier,
   pour voir le « Trop tard ! » en action ;
@@ -83,7 +86,8 @@ StyleMatch.xcodeproj
 StyleMatch/
 ├── App/            Point d'entrée, barre d'onglets, bandeaux de notification
 ├── Models/         Garment, FeedFilters, UserProfile, Order, Pricing
-├── Services/       MarketplaceService (contrat backend), service de démo, catalogue
+├── Config/         AppConfig : URL et clés publiques du backend
+├── Services/       Contrat backend, Supabase, Stripe, connexion, service de démo
 ├── Store/          AppStore : état global et logique métier
 ├── Views/
 │   ├── Discover/   Pile de swipe, carte, fiche détaillée
@@ -91,21 +95,27 @@ StyleMatch/
 │   ├── Cart/       Panier dynamique
 │   ├── Checkout/   Paiement / achat express
 │   ├── Profile/    Profil, formulaires, commandes et suivi
-│   └── Components/ Flammes, badges, boutons, photos…
-└── Resources/      Icône et couleurs
-backend/supabase/schema.sql   Base de données, achat atomique, temps réel
-docs/ARCHITECTURE.md          Fonctionnement détaillé et passage en production
+│   ├── Account/    Connexion (Apple, code e-mail)
+│   ├── Admin/      Onglet Boutique : publier des pièces, expédier les commandes
+│   └── Components/ Style cel-shading, badges, boutons, photos…
+└── Resources/      Icône, couleurs, manifeste de confidentialité
+supabase/migrations/          Base de données, réservations, droits, temps réel
+supabase/functions/           Paiement Stripe, webhook, suppression de compte
+supabase/tests/               Tests SQL du parcours d'achat
+docs/PRODUCTION.md            Guide de mise en production pas à pas
+docs/ARCHITECTURE.md          Fonctionnement détaillé
 StyleMatchTests/              Tests unitaires (Swift Testing), lancés par la CI
 ```
 
 ## Tests
 
-La CI GitHub (`iOS build & tests`) compile l'app et lance les tests unitaires sur un simulateur
-iPhone à chaque PR : panier dynamique, achat unique d'une pièce, annulation de swipe, filtres,
-devis serveur, carte bancaire, stockage chiffré du profil.
+- **`iOS build & tests`** compile l'app et lance les tests unitaires sur un simulateur iPhone :
+  panier dynamique, achat unique d'une pièce, annulation de swipe, filtres, devis serveur,
+  connexion requise, synchronisation des swipes, publication d'une pièce, stockage chiffré.
+- **`Backend tests`** applique la migration sur PostgreSQL et rejoue le parcours d'achat (réservations
+  concurrentes, webhook rejoué, remboursement, droits de chaque rôle), et vérifie les fonctions Stripe.
 
 ## Passer en production
 
-Voir [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) : backend Supabase (PostgreSQL + Realtime),
-achat atomique des pièces uniques, paiement Stripe / Apple Pay, puis remplacement du service
-simulé par le vrai service — **sans toucher aux écrans**.
+Suis [`docs/PRODUCTION.md`](docs/PRODUCTION.md) : Supabase, Stripe, connexion Apple, puis
+`Deploy backend` et `TestFlight` depuis l'onglet Actions. Aucun outil à installer.
