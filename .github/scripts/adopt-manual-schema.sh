@@ -32,10 +32,17 @@ if [ "$already" = "True" ]; then
 fi
 
 result=$(supabase db query "${query_target[@]}" --read-only -f supabase/tests/verify_schema.sql --output-format json 2>/dev/null)
+# Base locale : {"rows": [...]} · projet hébergé : [...] directement.
 read -r present missing_count missing < <(python3 -c '
 import json, sys
-row = json.load(sys.stdin)["rows"][0]
-print(row["present_count"], row["missing_count"], row["missing"] or "-")
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+    rows = data["rows"] if isinstance(data, dict) else data
+    row = rows[0]
+    print(row["present_count"], row["missing_count"], row["missing"] or "-")
+except Exception as error:
+    sys.exit(f"Réponse inattendue de la base ({error}) : {raw[:500]}")
 ' <<<"$result")
 
 if [ "$present" -eq 0 ]; then
