@@ -55,6 +55,10 @@ jobs:
         if: steps.config.outputs.ready == 'true'
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --yes
 
+      - name: Reprendre une base créée à la main
+        if: steps.config.outputs.ready == 'true'
+        run: .github/scripts/adopt-manual-schema.sh
+
       - name: Appliquer les migrations
         if: steps.config.outputs.ready == 'true'
         run: supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --yes
